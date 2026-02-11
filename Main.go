@@ -110,8 +110,7 @@ func handleBalanceById(w http.ResponseWriter, r *http.Request) {
 }
 
 func getBalances(w http.ResponseWriter, _ *http.Request) {
-	//TODO: что такое rows за чем и почему?
-	// rows – строки вытащенные из базы
+
 	rows, err := db.Query("SELECT id, currency, amount, rate FROM balances")
 	//TODO: зачем капсовый текст?
 	// капсовый текст – ключевые слова (SQL)
