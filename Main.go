@@ -112,8 +112,7 @@ func handleBalanceById(w http.ResponseWriter, r *http.Request) {
 func getBalances(w http.ResponseWriter, _ *http.Request) {
 
 	rows, err := db.Query("SELECT id, currency, amount, rate FROM balances")
-	//TODO: зачем капсовый текст?
-	// капсовый текст – ключевые слова (SQL)
+
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка получения задач"}`, http.StatusInternalServerError)
 		return
