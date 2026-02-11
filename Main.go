@@ -110,9 +110,11 @@ func handleBalanceById(w http.ResponseWriter, r *http.Request) {
 }
 
 func getBalances(w http.ResponseWriter, _ *http.Request) {
-
+	//TODO: что такое rows
+	//TODO: rows - это строка
 	rows, err := db.Query("SELECT id, currency, amount, rate FROM balances")
-
+	//TODO: зачем нужен капсовый текст
+	//TODO: капсовый текст - название действия
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка получения задач"}`, http.StatusInternalServerError)
 		return
