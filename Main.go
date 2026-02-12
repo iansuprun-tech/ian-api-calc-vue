@@ -4,19 +4,35 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite драйвер
 )
+
+const exchangeRateAPIKey = "6d261a66cfd0da7dfd5597e6"
+const exchangeRateAPIURL = "https://v6.exchangerate-api.com/v6/"
 
 type Balance struct {
 	ID       int     `json:"id"`
 	Currency string  `json:"currency"`
 	Amount   float64 `json:"amount"`
-	Rate     float64 `json:"rate"`
+}
+
+type Rates struct {
+	ID        int     `json:"id"`
+	Currency  string  `json:"currency"`
+	RateToUSD float64 `json:"rate_to_usd"`
+	UpdateAt  string  `json:"update_at"`
+}
+
+type ExchangeRateResponse struct {
+	Result          string             `json:"result"`
+	ConversionRates map[string]float64 `json:"conversion_rates"`
 }
 
 // Глобальная переменная для подключения к БД
@@ -55,18 +71,79 @@ func main() {
 // CreateTable создает таблицу task если ее нет
 func createTable() {
 	//TODO: зачем нужно ":=" "!=" и тд
-	query := `
+	queryBalances := `
 CREATE TABLE IF NOT EXISTS balances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    current TEXT NOT NULL,
-    amount REAL NOT NULL,
-    rate REAL NOT NULL
+    currency TEXT NOT NULL,
+    amount REAL NOT NULL
 );`
 
-	_, err := db.Exec(query)
+	_, err := db.Exec(queryBalances)
 	if err != nil {
-		log.Fatal("Ошибка создания таблицы:", err)
+		log.Fatal("Ошибка создания таблицы balances:", err)
 	}
+
+	queryRates := `
+	CREATE TABLE IF NOT EXISTS rates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		currency TEXT NOT NULL UNIQUE,
+		rate_to_usd REAL NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);`
+
+	_, err = db.Exec(queryRates)
+	if err != nil {
+		log.Fatal("Ошибка создания таблицы rates:", err)
+	}
+}
+
+func fetchAndSaveRates() {
+	url := exchangeRateAPIURL + exchangeRateAPIKey + "/latest/USD"
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Println("Ошибка запроса к API курсов:", err)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Println("Ошибка чтения ответа API:", err)
+		return
+	}
+
+	var rateResponse ExchangeRateResponse
+	err = json.Unmarshal(body, &rateResponse)
+	if err != nil {
+		log.Println("Ошибка разбора JSON от API:", err)
+		return
+	}
+
+	if rateResponse.Result != "success" {
+		log.Println("API вернул ошибку, result:", rateResponse.Result)
+		return
+	}
+
+	for currency, rate := range rateResponse.ConversionRates {
+		var rateToUSD float64
+		if rate > 0 {
+			rateToUSD = 1.0 / rate
+		}
+
+		_, err := db.Exec(`
+INSERT INTO rates (currency, rate_to_usd, update_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT (currency)
+		DO UPDATE SET rate_to_usd = ?, update_at = CURRENT_TIMESTAMP`,
+			currency, rateToUSD, rateToUSD)
+
+		if err != nil {
+			log.Println("Ошибка сохранения курса для", currency, ":", err)
+		}
+	}
+
+	log.Println("Курсы валют обновлены успешно!")
 }
 
 // handleBalances обрабатывает /balances (GET - список, POST - создание)
