@@ -1,38 +1,62 @@
 <script setup lang="ts">
-import {computed, onMounted, ref} from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import LightLayout from '@/layouts/LightLayout.vue'
 
 type Balance = {
   id?: number
   currency: string
   amount?: number
-  rate?: number
+}
+
+type Rate = {
+  id: number
+  currency: string
+  rate_to_usd: number
+  updated_at: string
 }
 
 const currencies = ref<Balance[]>([])
+const rates = ref<Rate[]>([])
 const newCurrency = ref('')
 const newAmount = ref('')
-const newRate = ref('')
 
+function getRateForCurrency(currencyCode: string): number | null {
+  const found = rates.value.find((r) => r.currency == currencyCode)
+  return found ? found.rate_to_usd : null
+}
+
+const hasMissingRates = computed((): boolean => {
+  return currencies.value.some((c) => getRateForCurrency(c.currency) == null)
+})
 
 const totalUSD = computed((): number => {
   let total = 0
-  currencies.value.forEach(c => {
-    if (c.amount && c.rate) {
-      total += c.amount * c.rate
+  currencies.value.forEach((c) => {
+    const rate = getRateForCurrency(c.currency)
+    if (c.amount && rate) {
+      total += c.amount * rate
     }
   })
   return total
 })
 
+const canCalculateTotal = computed((): boolean => {
+  return !currencies.value.some((c) => {
+    return c.amount && c.amount > 0 && getRateForCurrency(c.currency) === null
+  })
+})
+
 function loadBalances() {
   fetch('/api/balances')
-      .then(response => response.json())
-      .then(data => currencies.value = data);
+    .then((response) => response.json())
+    .then((data) => (currencies.value = data))
 }
 
-onMounted(loadBalances)
-
+onMounted(() => {
+  loadBalances()
+  loadRates()
+  setInterval(loadRates, 300000)
+})
 
 async function addCurrency() {
   const code = newCurrency.value.trim().toUpperCase()
@@ -41,13 +65,13 @@ async function addCurrency() {
   const response = await fetch(`/api/balances`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       currency: code,
       amount: parseFloat(newAmount.value),
-      rate: parseFloat(newRate.value)
-    })
+      rate: parseFloat(newRate.value),
+    }),
   })
   if (response.ok) {
     newCurrency.value = ''
@@ -59,13 +83,13 @@ async function addCurrency() {
 
 async function removeBalance(balance: Balance) {
   const response = await fetch(`/api/balances/${balance.id}`, {
-    method: 'DELETE'
-  });
+    method: 'DELETE',
+  })
 
   if (response.ok) {
-    loadBalances();
+    loadBalances()
   } else {
-    console.error('Ошибка удаления');
+    console.error('Ошибка удаления')
   }
 }
 
@@ -73,9 +97,9 @@ async function updateBalance(balance: Balance) {
   await fetch(`/api/balances/${balance.id}`, {
     method: 'PUT',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(balance)
+    body: JSON.stringify(balance),
   })
 }
 </script>
@@ -88,20 +112,12 @@ async function updateBalance(balance: Balance) {
 
         <form @submit.prevent="addCurrency" class="add-form">
           <input
-              v-model="newCurrency"
-              placeholder="Currency code (USD, EUR...)"
-              class="input-field input-small"
+            v-model="newCurrency"
+            placeholder="Currency code (USD, EUR...)"
+            class="input-field input-small"
           />
-          <input
-              v-model="newAmount"
-              placeholder="Amount"
-              class="input-field input-small"
-          />
-          <input
-              v-model="newRate"
-              placeholder="Rate"
-              class="input-field input-small"
-          />
+          <input v-model="newAmount" placeholder="Amount" class="input-field input-small" />
+          <input v-model="newRate" placeholder="Rate" class="input-field input-small" />
           <button type="submit" class="btn btn-primary">+ Add</button>
         </form>
 
@@ -113,31 +129,31 @@ async function updateBalance(balance: Balance) {
           <div v-for="balance in currencies" :key="balance.currency" class="currency-item">
             <span class="currency-code">{{ balance.currency }}</span>
             <input
-                v-model="balance.amount"
-                @change="updateBalance(balance)"
-                placeholder="Amount"
-                type="number"
-                class="input-field input-small"
+              v-model="balance.amount"
+              @change="updateBalance(balance)"
+              placeholder="Amount"
+              type="number"
+              class="input-field input-small"
             />
             <input
-                v-model="balance.rate"
-                @change="updateBalance(balance)"
-                placeholder="USD rate"
-                type="number"
-                step="0.0001"
-                class="input-field input-small"
+              v-model="balance.rate"
+              @change="updateBalance(balance)"
+              placeholder="USD rate"
+              type="number"
+              step="0.0001"
+              class="input-field input-small"
             />
-            <button @click="removeBalance(balance)" class="btn btn-danger">
-              ✕
-            </button>
+            <button @click="removeBalance(balance)" class="btn btn-danger">✕</button>
           </div>
         </div>
 
         <div v-if="currencies.length > 0" class="total-section">
           <h2 class="total-title">Total Conversion</h2>
           <ul class="total-list">
-            <li v-if="!currencies.filter(c => c.currency === 'USD').length && totalUSD"
-                class="total-item">
+            <li
+              v-if="!currencies.filter((c) => c.currency === 'USD').length && totalUSD"
+              class="total-item"
+            >
               <span class="total-currency">USD</span>
               <span class="total-value">{{ totalUSD.toFixed(2) }}</span>
             </li>

@@ -23,11 +23,11 @@ type Balance struct {
 	Amount   float64 `json:"amount"`
 }
 
-type Rates struct {
+type Rate struct {
 	ID        int     `json:"id"`
 	Currency  string  `json:"currency"`
 	RateToUSD float64 `json:"rate_to_usd"`
-	UpdateAt  string  `json:"update_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type ExchangeRateResponse struct {
@@ -52,9 +52,19 @@ func main() {
 	// Создание таблицы задач
 	createTable()
 
+	startRateUpdater()
+
 	// Настройка маршрутов
 	http.HandleFunc("/api/balances", handleBalancesList)
 	http.HandleFunc("/api/balances/", handleBalanceById)
+
+	http.HandleFunc("/api/rates", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			getRates(w, r)
+		} else {
+			http.Error(w, `{"error": "Метод не поддерживается"}`, http.StatusMethodNotAllowed)
+		}
+	})
 
 	// Запуск сервера
 	fmt.Println("Сервер запущен на http//localhost:8080")
@@ -146,6 +156,40 @@ INSERT INTO rates (currency, rate_to_usd, update_at)
 	log.Println("Курсы валют обновлены успешно!")
 }
 
+func startRateUpdater() {
+	fetchAndSaveRates()
+	ticker := time.NewTicker(5 * time.Minute)
+
+	go func() {
+		for range ticker.C {
+			fetchAndSaveRates()
+		}
+	}()
+}
+
+func getRates(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	rows, err := db.Query("SELECT id, currency, rate_to_usd, updated_at FROM rates")
+	if err != nil {
+		http.Error(w, `{"error": "Ошибка получения курсов"}`, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	rates := []Rate{}
+	for rows.Next() {
+		var rate Rate
+		if err := rows.Scan(&rate.ID, &rate.Currency, &rate.RateToUSD, &rate.UpdatedAt); err != nil {
+			http.Error(w, `{"error": "Ошилбка чтения курсов"}`, http.StatusInternalServerError)
+			return
+		}
+		rates = append(rates, rate)
+	}
+
+	json.NewEncoder(w).Encode(rates)
+}
+
 // handleBalances обрабатывает /balances (GET - список, POST - создание)
 func handleBalancesList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -189,7 +233,7 @@ func handleBalanceById(w http.ResponseWriter, r *http.Request) {
 func getBalances(w http.ResponseWriter, _ *http.Request) {
 	//TODO: что такое rows
 	//TODO: rows - это строка
-	rows, err := db.Query("SELECT id, currency, amount, rate FROM balances")
+	rows, err := db.Query("SELECT id, currency, amount FROM balances")
 	//TODO: зачем нужен капсовый текст
 	//TODO: капсовый текст - название действия
 	if err != nil {
@@ -201,7 +245,7 @@ func getBalances(w http.ResponseWriter, _ *http.Request) {
 	balances := []Balance{}
 	for rows.Next() {
 		var balance Balance
-		if err := rows.Scan(&balance.ID, &balance.Currency, &balance.Amount, &balance.Rate); err != nil {
+		if err := rows.Scan(&balance.ID, &balance.Currency, &balance.Amount); err != nil {
 			http.Error(w, `{"error": "Ошибка чтения данных"}`, http.StatusInternalServerError)
 			return
 		}
@@ -219,8 +263,8 @@ func createBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO balances (currency, amount, rate) VALUES (?, ?, ?)",
-		balance.Currency, balance.Amount, balance.Rate)
+	result, err := db.Exec("INSERT INTO balances (currency, amount) VALUES (?, ?, ?)",
+		balance.Currency, balance.Amount)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка создания задачи"}`, http.StatusInternalServerError)
 		return
@@ -236,8 +280,8 @@ func createBalance(w http.ResponseWriter, r *http.Request) {
 // getBalance возвращает задачу по ID
 func getBalance(w http.ResponseWriter, r *http.Request, id int) {
 	var balance Balance
-	err := db.QueryRow("SELECT id, currency, amount, rate FROM balances WHERE id = ?", id).
-		Scan(&balance.ID, &balance.Currency, &balance.Amount, &balance.Rate)
+	err := db.QueryRow("SELECT id, currency, amount FROM balances WHERE id = ?", id).
+		Scan(&balance.ID, &balance.Currency, &balance.Amount)
 
 	if err == sql.ErrNoRows {
 		http.Error(w, `{"error": "Задача не найдена"}`, http.StatusNotFound)
@@ -267,8 +311,8 @@ func updateBalance(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
-	_, err = db.Exec("UPDATE balances SET currency = ?, amount = ?, rate = ? WHERE id = ?",
-		balance.Currency, balance.Amount, balance.Rate, id)
+	_, err = db.Exec("UPDATE balances SET currency = ?, amount = ? WHERE id = ?",
+		balance.Currency, balance.Amount, id)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка обновления задачи"}`, http.StatusInternalServerError)
 		return
