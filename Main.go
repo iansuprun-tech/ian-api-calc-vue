@@ -142,10 +142,10 @@ func fetchAndSaveRates() {
 		}
 
 		_, err := db.Exec(`
-INSERT INTO rates (currency, rate_to_usd, update_at)
+INSERT INTO rates (currency, rate_to_usd, updated_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT (currency)
-		DO UPDATE SET rate_to_usd = ?, update_at = CURRENT_TIMESTAMP`,
+		DO UPDATE SET rate_to_usd = ?, updated_at = CURRENT_TIMESTAMP`,
 			currency, rateToUSD, rateToUSD)
 
 		if err != nil {
@@ -263,7 +263,7 @@ func createBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO balances (currency, amount) VALUES (?, ?, ?)",
+	result, err := db.Exec("INSERT INTO balances (currency, amount) VALUES (?, ?)",
 		balance.Currency, balance.Amount)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка создания задачи"}`, http.StatusInternalServerError)

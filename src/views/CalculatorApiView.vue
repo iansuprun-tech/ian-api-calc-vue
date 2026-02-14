@@ -52,10 +52,16 @@ function loadBalances() {
     .then((data) => (currencies.value = data))
 }
 
+function loadRates() {
+  fetch('/api/rates')
+    .then((response) => response.json())
+    .then((data) => (rates.value = data))
+}
+
 onMounted(() => {
   loadBalances()
   loadRates()
-  setInterval(loadRates, 300000)
+  setInterval(loadRates, 5000)
 })
 
 async function addCurrency() {
@@ -69,14 +75,12 @@ async function addCurrency() {
     },
     body: JSON.stringify({
       currency: code,
-      amount: parseFloat(newAmount.value),
-      rate: parseFloat(newRate.value),
+      amount: parseFloat(newAmount.value) || 0,
     }),
   })
   if (response.ok) {
     newCurrency.value = ''
     newAmount.value = ''
-    newRate.value = ''
     loadBalances()
   }
 }
@@ -88,8 +92,6 @@ async function removeBalance(balance: Balance) {
 
   if (response.ok) {
     loadBalances()
-  } else {
-    console.error('Ошибка удаления')
   }
 }
 
@@ -109,6 +111,13 @@ async function updateBalance(balance: Balance) {
     <div class="calculator-container">
       <div class="calculator-card">
         <h1 class="calculator-title">Currency Calculator</h1>
+        
+        <div v-if="rates.length === 0" class="warning-banner">
+          Курсы валют не загружены. Расчет невозможен.
+        </div>
+        <di v-else-if="hasMissingRates" class="warning-banner">
+          Для некоторых валю нет курса. Общий расчет может быть неточным.
+        </di>
 
         <form @submit.prevent="addCurrency" class="add-form">
           <input
@@ -117,7 +126,7 @@ async function updateBalance(balance: Balance) {
             class="input-field input-small"
           />
           <input v-model="newAmount" placeholder="Amount" class="input-field input-small" />
-          <input v-model="newRate" placeholder="Rate" class="input-field input-small" />
+
           <button type="submit" class="btn btn-primary">+ Add</button>
         </form>
 
@@ -128,6 +137,7 @@ async function updateBalance(balance: Balance) {
         <div class="currencies-list">
           <div v-for="balance in currencies" :key="balance.currency" class="currency-item">
             <span class="currency-code">{{ balance.currency }}</span>
+
             <input
               v-model="balance.amount"
               @change="updateBalance(balance)"
@@ -135,20 +145,24 @@ async function updateBalance(balance: Balance) {
               type="number"
               class="input-field input-small"
             />
-            <input
-              v-model="balance.rate"
-              @change="updateBalance(balance)"
-              placeholder="USD rate"
-              type="number"
-              step="0.0001"
-              class="input-field input-small"
-            />
+
+            <span v-if="getRateForCurrency(balance.currency) !== null" class="rate-display">
+              1 {{ balance.currency }} = {{ getRateForCurrency(balance.currency)!.toFixed(4) }} USD
+            </span>
+
+            <span v-else class="rate-missing"> нет курса </span>
+
             <button @click="removeBalance(balance)" class="btn btn-danger">✕</button>
           </div>
         </div>
 
         <div v-if="currencies.length > 0" class="total-section">
           <h2 class="total-title">Total Conversion</h2>
+
+          <div v-if="canCalculateTotal" class="warning-banner warning-small">
+            Не ве курсы доступны – итог может быть неполным
+          </div>
+
           <ul class="total-list">
             <li
               v-if="!currencies.filter((c) => c.currency === 'USD').length && totalUSD"
@@ -158,9 +172,11 @@ async function updateBalance(balance: Balance) {
               <span class="total-value">{{ totalUSD.toFixed(2) }}</span>
             </li>
             <template v-for="currency in currencies" :key="currency.currency">
-              <li v-if="currency?.rate && currency.rate > 0" class="total-item">
+              <li v-if="getRateForCurrency(currency.currency)" class="total-item">
                 <span class="total-currency">{{ currency.currency }}</span>
-                <span class="total-value">{{ (totalUSD / currency.rate).toFixed(2) }}</span>
+                <span class="total-value">
+                  {{ (totalUSD / getRateForCurrency(currency.currency)!).toFixed(2) }}
+                </span>
               </li>
             </template>
           </ul>
@@ -171,6 +187,39 @@ async function updateBalance(balance: Balance) {
 </template>
 
 <style scoped>
+/* Жёлтая плашка-предупреждение */
+.warning-banner {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.warning-small {
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* Автоматический курс рядом с валютой */
+.rate-display {
+  font-size: 0.85rem;
+  color: #28a745;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Нет курса — красный текст */
+.rate-missing {
+  font-size: 0.85rem;
+  color: #dc3545;
+  font-weight: 500;
+  font-style: italic;
+}
+
 .calculator-container {
   width: 100%;
   max-width: 500px;
