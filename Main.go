@@ -16,13 +16,13 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/lib/pq" // PostgreSQL драйвер
+	"github.com/joho/godotenv" // загружает переменные из .env файла
+	_ "github.com/lib/pq"      // PostgreSQL драйвер
 )
 
 //go:embed db/migrations/*.sql
 var migrationsFS embed.FS
 
-const exchangeRateAPIKey = "6d261a66cfd0da7dfd5597e6"
 const exchangeRateAPIURL = "https://v6.exchangerate-api.com/v6/"
 
 type Balance struct {
@@ -48,6 +48,14 @@ var db *sql.DB
 
 // TODO: зачем нужны пустые круглые скобки? (так и не разобрался)
 func main() {
+	// Загружаем переменные из .env файла.
+	// godotenv.Load() читает файл .env и добавляет все переменные в окружение,
+	// после чего их можно получать через os.Getenv("ИМЯ_ПЕРЕМЕННОЙ").
+	// Если .env нет (например, в продакшене) — не падаем, а используем системные переменные.
+	if err := godotenv.Load(); err != nil {
+		log.Println("Файл .env не найден, используем системные переменные окружения")
+	}
+
 	// Инициализация базы данных
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -112,7 +120,12 @@ func runMigrations(dsn string) {
 }
 
 func fetchAndSaveRates() {
-	url := exchangeRateAPIURL + exchangeRateAPIKey + "/latest/USD"
+	apiKey := os.Getenv("EXCHANGE_RATE_API_KEY")
+	if apiKey == "" {
+		log.Println("EXCHANGE_RATE_API_KEY не задан, пропускаем обновление курсов")
+		return
+	}
+	url := exchangeRateAPIURL + apiKey + "/latest/USD"
 	resp, err := http.Get(url)
 	if err != nil {
 		log.Println("Ошибка запроса к API курсов:", err)

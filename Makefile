@@ -1,3 +1,10 @@
+# Загружаем переменные из .env файла (если он есть)
+# include — директива Make, она читает другой файл и подставляет переменные.
+# "-" перед include означает "не падай если файла нет".
+-include .env
+
+# ?= означает "использовать это значение, только если переменная ещё не задана".
+# Если DATABASE_URL уже загружен из .env — он не перезапишется.
 DB_URL ?= postgres://postgres:postgres@localhost:5432/balances?sslmode=disable
 MIGRATIONS_DIR = db/migrations
 
@@ -45,4 +52,4 @@ migrate-force:
 # Запустить Go-сервер
 .PHONY: run
 run:
-	DATABASE_URL="$(DB_URL)" go run Main.go
+	go run Main.go
