@@ -52,4 +52,4 @@ migrate-force:
 # Запустить Go-сервер
 .PHONY: run
 run:
-	go run Main.go
+	go run ./cmd/app/
