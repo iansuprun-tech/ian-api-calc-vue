@@ -111,7 +111,7 @@ async function updateBalance(balance: Balance) {
     <div class="calculator-container">
       <div class="calculator-card">
         <h1 class="calculator-title">Currency Calculator</h1>
-        
+
         <div v-if="rates.length === 0" class="warning-banner">
           Курсы валют не загружены. Расчет невозможен.
         </div>
@@ -160,7 +160,7 @@ async function updateBalance(balance: Balance) {
           <h2 class="total-title">Total Conversion</h2>
 
           <div v-if="canCalculateTotal" class="warning-banner warning-small">
-            Не ве курсы доступны – итог может быть неполным
+            Не все курсы доступны – итог может быть неполным
           </div>
 
           <ul class="total-list">

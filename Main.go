@@ -7,11 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite драйвер
+	_ "github.com/lib/pq" // PostgreSQL драйвер
 )
 
 const exchangeRateAPIKey = "6d261a66cfd0da7dfd5597e6"
@@ -41,11 +42,17 @@ var db *sql.DB
 // TODO: зачем нужны пустые круглые скобки? (так и не разобрался)
 func main() {
 	// Инициализация базы данных
-	//TODO: что такое "err"?
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = "host=localhost port=5432 user=postgres password=postgres dbname=balances sslmode=disable"
+	}
 	var err error
-	db, err = sql.Open("sqlite3", "./balances.db")
+	db, err = sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatal("Ошибка подключения к БД", err)
+		log.Fatal("Ошибка подключения к БД: ", err)
+	}
+	if err = db.Ping(); err != nil {
+		log.Fatal("БД недоступна: ", err)
 	}
 	defer db.Close()
 
@@ -80,12 +87,11 @@ func main() {
 
 // CreateTable создает таблицу task если ее нет
 func createTable() {
-	//TODO: зачем нужно ":=" "!=" и тд
 	queryBalances := `
 CREATE TABLE IF NOT EXISTS balances (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     currency TEXT NOT NULL,
-    amount REAL NOT NULL
+    amount DOUBLE PRECISION NOT NULL
 );`
 
 	_, err := db.Exec(queryBalances)
@@ -94,11 +100,11 @@ CREATE TABLE IF NOT EXISTS balances (
 	}
 
 	queryRates := `
-	CREATE TABLE IF NOT EXISTS rates (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		currency TEXT NOT NULL UNIQUE,
-		rate_to_usd REAL NOT NULL,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS rates (
+    id SERIAL PRIMARY KEY,
+    currency TEXT NOT NULL UNIQUE,
+    rate_to_usd DOUBLE PRECISION NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );`
 
 	_, err = db.Exec(queryRates)
@@ -143,10 +149,10 @@ func fetchAndSaveRates() {
 
 		_, err := db.Exec(`
 INSERT INTO rates (currency, rate_to_usd, updated_at)
-		VALUES (?, ?, CURRENT_TIMESTAMP)
+		VALUES ($1, $2, CURRENT_TIMESTAMP)
 		ON CONFLICT (currency)
-		DO UPDATE SET rate_to_usd = ?, updated_at = CURRENT_TIMESTAMP`,
-			currency, rateToUSD, rateToUSD)
+		DO UPDATE SET rate_to_usd = $2, updated_at = CURRENT_TIMESTAMP`,
+			currency, rateToUSD)
 
 		if err != nil {
 			log.Println("Ошибка сохранения курса для", currency, ":", err)
@@ -263,15 +269,12 @@ func createBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO balances (currency, amount) VALUES (?, ?)",
-		balance.Currency, balance.Amount)
+	err := db.QueryRow("INSERT INTO balances (currency, amount) VALUES ($1, $2) RETURNING id",
+		balance.Currency, balance.Amount).Scan(&balance.ID)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка создания задачи"}`, http.StatusInternalServerError)
 		return
 	}
-
-	id, _ := result.LastInsertId()
-	balance.ID = int(id)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(balance)
@@ -280,7 +283,7 @@ func createBalance(w http.ResponseWriter, r *http.Request) {
 // getBalance возвращает задачу по ID
 func getBalance(w http.ResponseWriter, r *http.Request, id int) {
 	var balance Balance
-	err := db.QueryRow("SELECT id, currency, amount FROM balances WHERE id = ?", id).
+	err := db.QueryRow("SELECT id, currency, amount FROM balances WHERE id = $1", id).
 		Scan(&balance.ID, &balance.Currency, &balance.Amount)
 
 	if err == sql.ErrNoRows {
@@ -305,13 +308,13 @@ func updateBalance(w http.ResponseWriter, r *http.Request, id int) {
 
 	// Проверяем существование задачи
 	var exists bool
-	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM balances WHERE id = ?)", id).Scan(&exists)
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM balances WHERE id = $1)", id).Scan(&exists)
 	if err != nil || !exists {
 		http.Error(w, `{"error": "Задача не найдена"}`, http.StatusNotFound)
 		return
 	}
 
-	_, err = db.Exec("UPDATE balances SET currency = ?, amount = ? WHERE id = ?",
+	_, err = db.Exec("UPDATE balances SET currency = $1, amount = $2 WHERE id = $3",
 		balance.Currency, balance.Amount, id)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка обновления задачи"}`, http.StatusInternalServerError)
@@ -324,7 +327,7 @@ func updateBalance(w http.ResponseWriter, r *http.Request, id int) {
 
 // deleteBalance удаляет задачу по ID
 func deleteBalance(w http.ResponseWriter, r *http.Request, id int) {
-	result, err := db.Exec("DELETE FROM balances WHERE id = ?", id)
+	result, err := db.Exec("DELETE FROM balances WHERE id = $1", id)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка удаления задачи"}`, http.StatusInternalServerError)
 		return
