@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS balances (
+    id SERIAL PRIMARY KEY,
+    currency TEXT NOT NULL,
+    amount DOUBLE PRECISION NOT NULL
+);

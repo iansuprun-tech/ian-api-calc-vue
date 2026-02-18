@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/lib/pq" // PostgreSQL драйвер
 )
+
+//go:embed db/migrations/*.sql
+var migrationsFS embed.FS
 
 const exchangeRateAPIKey = "6d261a66cfd0da7dfd5597e6"
 const exchangeRateAPIURL = "https://v6.exchangerate-api.com/v6/"
@@ -44,7 +51,7 @@ func main() {
 	// Инициализация базы данных
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "host=localhost port=5432 user=postgres password=postgres dbname=balances sslmode=disable"
+		dsn = "postgres://postgres:postgres@localhost:5432/balances?sslmode=disable"
 	}
 	var err error
 	db, err = sql.Open("postgres", dsn)
@@ -56,8 +63,8 @@ func main() {
 	}
 	defer db.Close()
 
-	// Создание таблицы задач
-	createTable()
+	// Применение миграций
+	runMigrations(dsn)
 
 	startRateUpdater()
 
@@ -85,32 +92,23 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-// CreateTable создает таблицу task если ее нет
-func createTable() {
-	queryBalances := `
-CREATE TABLE IF NOT EXISTS balances (
-    id SERIAL PRIMARY KEY,
-    currency TEXT NOT NULL,
-    amount DOUBLE PRECISION NOT NULL
-);`
-
-	_, err := db.Exec(queryBalances)
+// runMigrations применяет все pending миграции из встроенных SQL-файлов
+func runMigrations(dsn string) {
+	sourceDriver, err := iofs.New(migrationsFS, "db/migrations")
 	if err != nil {
-		log.Fatal("Ошибка создания таблицы balances:", err)
+		log.Fatal("Ошибка инициализации миграций: ", err)
 	}
 
-	queryRates := `
-CREATE TABLE IF NOT EXISTS rates (
-    id SERIAL PRIMARY KEY,
-    currency TEXT NOT NULL UNIQUE,
-    rate_to_usd DOUBLE PRECISION NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`
-
-	_, err = db.Exec(queryRates)
+	m, err := migrate.NewWithSourceInstance("iofs", sourceDriver, dsn)
 	if err != nil {
-		log.Fatal("Ошибка создания таблицы rates:", err)
+		log.Fatal("Ошибка создания мигратора: ", err)
 	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		log.Fatal("Ошибка применения миграций: ", err)
+	}
+
+	log.Println("Миграции применены успешно!")
 }
 
 func fetchAndSaveRates() {
