@@ -60,6 +60,8 @@ func (h *AccountHandler) HandleByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.getByID(w, id, userID)
+	case http.MethodPut:
+		h.updateComment(w, r, id, userID)
 	case http.MethodDelete:
 		h.delete(w, id, userID)
 	default:
@@ -104,6 +106,29 @@ func (h *AccountHandler) getByID(w http.ResponseWriter, id, userID int) {
 		http.Error(w, `{"error": "Счёт не найден"}`, http.StatusNotFound)
 		return
 	}
+	if err != nil {
+		http.Error(w, `{"error": "Ошибка получения счёта"}`, http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(account)
+}
+
+// updateComment — обновить комментарий счёта.
+func (h *AccountHandler) updateComment(w http.ResponseWriter, r *http.Request, id, userID int) {
+	var body struct {
+		Comment string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error": "Неверный формат JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.uc.UpdateComment(id, userID, body.Comment); err != nil {
+		http.Error(w, `{"error": "Счёт не найден"}`, http.StatusNotFound)
+		return
+	}
+
+	account, err := h.uc.GetByID(id, userID)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка получения счёта"}`, http.StatusInternalServerError)
 		return

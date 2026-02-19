@@ -71,6 +71,25 @@ func (r *AccountRepo) Delete(id, userID int) (int64, error) {
 	return result.RowsAffected()
 }
 
+// UpdateComment — обновить комментарий счёта.
+func (r *AccountRepo) UpdateComment(id, userID int, comment string) error {
+	res, err := r.db.Exec(
+		"UPDATE accounts SET comment = $1 WHERE id = $2 AND user_id = $3",
+		comment, id, userID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // Exists — проверить существование счёта у пользователя.
 func (r *AccountRepo) Exists(id, userID int) (bool, error) {
 	var exists bool

@@ -10,6 +10,7 @@ type AccountRepository interface {
 	Create(account entity.Account) (entity.Account, error)
 	Delete(id, userID int) (int64, error)
 	Exists(id, userID int) (bool, error)
+	UpdateComment(id, userID int, comment string) error
 }
 
 // AccountUseCase — бизнес-логика для работы со счетами.
@@ -45,4 +46,9 @@ func (uc *AccountUseCase) Delete(id, userID int) (int64, error) {
 // Exists — проверить существование счёта у пользователя.
 func (uc *AccountUseCase) Exists(id, userID int) (bool, error) {
 	return uc.repo.Exists(id, userID)
+}
+
+// UpdateComment — обновить комментарий счёта.
+func (uc *AccountUseCase) UpdateComment(id, userID int, comment string) error {
+	return uc.repo.UpdateComment(id, userID, comment)
 }

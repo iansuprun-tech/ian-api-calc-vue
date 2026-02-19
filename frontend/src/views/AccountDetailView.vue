@@ -40,6 +40,8 @@ const categories = ref<Category[]>([])
 const error = ref('')
 const deletingTxId = ref<number | null>(null)
 const editingTx = ref<Transaction | null>(null)
+const editingComment = ref(false)
+const editCommentValue = ref('')
 
 const accountId = Number(route.params.id)
 
@@ -110,6 +112,28 @@ async function createTransaction(amount: number) {
     selectedCategoryId.value = null
     loadAccount()
     loadTransactions()
+  }
+}
+
+function startEditComment() {
+  if (!account.value) return
+  editCommentValue.value = account.value.comment
+  editingComment.value = true
+}
+
+function cancelEditComment() {
+  editingComment.value = false
+}
+
+async function saveComment() {
+  const response = await apiFetch(`/api/accounts/${accountId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ comment: editCommentValue.value.trim() }),
+  })
+  if (response.ok) {
+    const data = await response.json()
+    account.value = data
+    editingComment.value = false
   }
 }
 
@@ -212,7 +236,21 @@ function goBack() {
         <div class="account-header">
           <div>
             <h1 class="account-name">{{ account.currency }}</h1>
-            <p class="account-comment" v-if="account.comment">{{ account.comment }}</p>
+            <div v-if="editingComment" class="comment-edit">
+              <input
+                v-model="editCommentValue"
+                class="input-field input-grow"
+                placeholder="Описание счёта"
+                @keyup.enter="saveComment"
+                @keyup.escape="cancelEditComment"
+              />
+              <button class="btn btn-success btn-sm" @click="saveComment">Сохранить</button>
+              <button class="btn btn-outline btn-sm" @click="cancelEditComment">Отмена</button>
+            </div>
+            <div v-else class="comment-row">
+              <p class="account-comment">{{ account.comment || '---' }}</p>
+              <button class="btn-edit-comment" @click="startEditComment" title="Редактировать">&#9998;</button>
+            </div>
           </div>
           <div class="balance-badge" :class="{ negative: account.balance < 0 }">
             {{ formatAmount(account.balance) }} {{ account.currency }}
@@ -385,7 +423,40 @@ function goBack() {
 .account-comment {
   color: #888;
   font-size: 0.9rem;
+  margin: 0;
+}
+
+.comment-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   margin-top: 0.2rem;
+}
+
+.comment-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.btn-edit-comment {
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s;
+}
+
+.btn-edit-comment:hover {
+  color: #d97706;
+}
+
+.btn-sm {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
 }
 
 .balance-badge {
