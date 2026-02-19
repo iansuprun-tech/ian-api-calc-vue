@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import LightLayout from '@/layouts/LightLayout.vue'
+import { apiFetch } from '@/api'
 
-// Тип счёта — приходит с бэкенда, баланс вычисляется через SUM транзакций
 type Account = {
   id: number
   currency: string
@@ -12,7 +11,6 @@ type Account = {
   balance: number
 }
 
-// Тип курса валют (для расчёта итогов в USD)
 type Rate = {
   id: number
   currency: string
@@ -27,27 +25,23 @@ const rates = ref<Rate[]>([])
 const newCurrency = ref('')
 const newComment = ref('')
 
-// Загрузка списка счетов с бэкенда
 function loadAccounts() {
-  fetch('/api/accounts')
+  apiFetch('/api/accounts')
     .then((response) => response.json())
     .then((data) => (accounts.value = data))
 }
 
-// Загрузка курсов валют
 function loadRates() {
   fetch('/api/rates')
     .then((response) => response.json())
     .then((data) => (rates.value = data))
 }
 
-// Получить курс валюты к USD
 function getRateForCurrency(currencyCode: string): number | null {
   const found = rates.value.find((r) => r.currency === currencyCode)
   return found ? found.rate_to_usd : null
 }
 
-// Итоги по валютам — суммируем балансы всех счетов в одной валюте
 const currencyTotals = computed(() => {
   const totals: Record<string, number> = {}
   accounts.value.forEach((a) => {
@@ -56,7 +50,6 @@ const currencyTotals = computed(() => {
   return totals
 })
 
-// Общий итог в USD (для расчёта через курсы)
 const totalUSD = computed((): number => {
   let total = 0
   for (const [currency, amount] of Object.entries(currencyTotals.value)) {
@@ -68,20 +61,24 @@ const totalUSD = computed((): number => {
   return total
 })
 
+let rateInterval: ReturnType<typeof setInterval>
+
 onMounted(() => {
   loadAccounts()
   loadRates()
-  setInterval(loadRates, 5000)
+  rateInterval = setInterval(loadRates, 60000)
 })
 
-// Создание нового счёта
+onUnmounted(() => {
+  clearInterval(rateInterval)
+})
+
 async function addAccount() {
   const code = newCurrency.value.trim().toUpperCase()
   if (!code) return
 
-  const response = await fetch('/api/accounts', {
+  const response = await apiFetch('/api/accounts', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       currency: code,
       comment: newComment.value.trim(),
@@ -94,9 +91,8 @@ async function addAccount() {
   }
 }
 
-// Удаление счёта
 async function removeAccount(account: Account) {
-  const response = await fetch(`/api/accounts/${account.id}`, {
+  const response = await apiFetch(`/api/accounts/${account.id}`, {
     method: 'DELETE',
   })
   if (response.ok) {
@@ -104,220 +100,245 @@ async function removeAccount(account: Account) {
   }
 }
 
-// Переход на страницу счёта
 function goToAccount(account: Account) {
   router.push(`/accounts/${account.id}`)
 }
 </script>
 
 <template>
-  <LightLayout>
-    <div class="accounts-container">
-      <div class="accounts-card">
-        <h1 class="accounts-title">Счета</h1>
+  <div class="page">
+    <div class="page-header">
+      <h1 class="page-title">Мои счета</h1>
+    </div>
 
-        <!-- Форма создания нового счёта -->
-        <form @submit.prevent="addAccount" class="add-form">
-          <input
-            v-model="newCurrency"
-            placeholder="Валюта (USD, EUR...)"
-            class="input-field input-currency"
-          />
-          <input
-            v-model="newComment"
-            placeholder="Комментарий"
-            class="input-field input-comment"
-          />
-          <button type="submit" class="btn btn-primary">+ Создать</button>
-        </form>
-
-        <!-- Пустое состояние -->
-        <div v-if="accounts.length === 0" class="empty-state">
-          Счетов пока нет. Создайте первый!
+    <div class="content-grid">
+      <!-- Основная колонка -->
+      <div class="main-column">
+        <!-- Форма создания счёта -->
+        <div class="card">
+          <h2 class="card-title">Новый счёт</h2>
+          <form @submit.prevent="addAccount" class="add-form">
+            <input
+              v-model="newCurrency"
+              placeholder="Валюта (USD, EUR...)"
+              class="input-field"
+            />
+            <input
+              v-model="newComment"
+              placeholder="Комментарий"
+              class="input-field input-grow"
+            />
+            <button type="submit" class="btn btn-primary">Создать</button>
+          </form>
         </div>
 
         <!-- Список счетов -->
-        <div class="accounts-list">
-          <div
-            v-for="account in accounts"
-            :key="account.id"
-            class="account-item"
-            @click="goToAccount(account)"
-          >
-            <div class="account-info">
-              <span class="account-currency">{{ account.currency }}</span>
-              <span class="account-comment">{{ account.comment || '—' }}</span>
-            </div>
-            <div class="account-right">
-              <span class="account-balance" :class="{ negative: account.balance < 0 }">
-                {{ account.balance.toFixed(2) }}
-              </span>
-              <button
-                @click.stop="removeAccount(account)"
-                class="btn btn-danger btn-small"
-              >
-                ✕
-              </button>
+        <div class="card">
+          <div v-if="accounts.length === 0" class="empty-state">
+            <p class="empty-icon">&#128176;</p>
+            <p>Счетов пока нет. Создайте первый!</p>
+          </div>
+
+          <div class="accounts-list">
+            <div
+              v-for="account in accounts"
+              :key="account.id"
+              class="account-item"
+              @click="goToAccount(account)"
+            >
+              <div class="account-left">
+                <span class="account-currency">{{ account.currency }}</span>
+                <span class="account-comment">{{ account.comment || '---' }}</span>
+              </div>
+              <div class="account-right">
+                <span class="account-balance" :class="{ negative: account.balance < 0 }">
+                  {{ account.balance.toFixed(2) }}
+                </span>
+                <button
+                  @click.stop="removeAccount(account)"
+                  class="btn-icon btn-danger"
+                  title="Удалить"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Итоги по валютам -->
-        <div v-if="Object.keys(currencyTotals).length > 0" class="total-section">
-          <h2 class="total-title">Итого по валютам</h2>
-          <ul class="total-list">
-            <li
+      <!-- Боковая колонка — итоги -->
+      <div class="side-column" v-if="Object.keys(currencyTotals).length > 0">
+        <div class="card summary-card">
+          <h2 class="card-title">Итого</h2>
+          <div class="summary-list">
+            <div
               v-for="(amount, currency) in currencyTotals"
               :key="currency"
-              class="total-item"
+              class="summary-item"
             >
-              <span class="total-currency">{{ currency }}</span>
-              <span class="total-value">{{ amount.toFixed(2) }}</span>
-            </li>
-          </ul>
+              <span class="summary-currency">{{ currency }}</span>
+              <span class="summary-value" :class="{ negative: amount < 0 }">
+                {{ amount.toFixed(2) }}
+              </span>
+            </div>
+          </div>
 
-          <!-- Итого в USD (если есть курсы) -->
           <div v-if="totalUSD !== 0" class="total-usd">
-            <span class="total-currency">Всего ≈ USD</span>
-            <span class="total-value">{{ totalUSD.toFixed(2) }}</span>
+            <span>Всего &approx; USD</span>
+            <span class="total-usd-value">{{ totalUSD.toFixed(2) }}</span>
           </div>
         </div>
       </div>
     </div>
-  </LightLayout>
+  </div>
 </template>
 
 <style scoped>
-.accounts-container {
-  width: 100%;
-  max-width: 550px;
-}
-
-.accounts-card {
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+.page {
   padding: 2rem;
+  max-width: 1000px;
+  margin: 0 auto;
 }
 
-.accounts-title {
+.page-header {
+  margin-bottom: 1.5rem;
+}
+
+.page-title {
   font-size: 1.75rem;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.main-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.card-title {
+  font-size: 1.1rem;
   font-weight: 600;
   color: #333;
-  text-align: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .add-form {
   display: flex;
   gap: 0.75rem;
-  margin-bottom: 1.5rem;
 }
 
 .input-field {
-  padding: 0.75rem 1rem;
-  border: 2px solid #e0e0e0;
+  padding: 0.65rem 0.9rem;
+  border: 1.5px solid #ddd;
   border-radius: 8px;
-  font-size: 1rem;
+  font-size: 0.95rem;
   transition: border-color 0.2s;
   background: #fff;
   color: #333;
+  width: 130px;
+}
+
+.input-grow {
+  flex: 1;
+  width: auto;
 }
 
 .input-field:focus {
   outline: none;
-  border-color: #4a90d9;
-}
-
-.input-currency {
-  width: 110px;
-  flex: none;
-}
-
-.input-comment {
-  flex: 1;
+  border-color: #0f3460;
 }
 
 .btn {
-  padding: 0.75rem 1.25rem;
+  padding: 0.65rem 1.2rem;
   border: none;
   border-radius: 8px;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-}
-
-.btn-primary {
-  background: #4a90d9;
-  color: #fff;
   white-space: nowrap;
 }
 
-.btn-primary:hover {
-  background: #3a7bc8;
-}
-
-.btn-danger {
-  background: #ff6b6b;
+.btn-primary {
+  background: #0f3460;
   color: #fff;
-  padding: 0.5rem 0.75rem;
 }
 
-.btn-danger:hover {
-  background: #ee5a5a;
-}
-
-.btn-small {
-  padding: 0.3rem 0.6rem;
-  font-size: 0.85rem;
+.btn-primary:hover {
+  background: #1a4a7a;
 }
 
 .empty-state {
   text-align: center;
-  padding: 2rem;
-  color: #888;
-  font-size: 1rem;
+  padding: 2rem 1rem;
+  color: #999;
+}
+
+.empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .accounts-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .account-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 10px;
-  border: 1px solid #e9ecef;
+  padding: 0.9rem 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #eee;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s;
 }
 
 .account-item:hover {
-  background: #eef2f7;
-  border-color: #4a90d9;
+  background: #f0f4ff;
+  border-color: #0f3460;
 }
 
-.account-info {
+.account-left {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.15rem;
 }
 
 .account-currency {
   font-weight: 600;
-  font-size: 1rem;
-  color: #4a90d9;
+  font-size: 0.95rem;
+  color: #0f3460;
 }
 
 .account-comment {
-  font-size: 0.85rem;
-  color: #888;
+  font-size: 0.8rem;
+  color: #999;
 }
 
 .account-right {
@@ -327,63 +348,89 @@ function goToAccount(account: Account) {
 }
 
 .account-balance {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  color: #28a745;
+  color: #22863a;
 }
 
 .account-balance.negative {
-  color: #dc3545;
+  color: #d73a49;
 }
 
-.total-section {
-  margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 2px solid #e9ecef;
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-.total-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 1rem;
+.btn-danger {
+  background: transparent;
+  color: #ccc;
 }
 
-.total-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+.btn-danger:hover {
+  background: #fee;
+  color: #d73a49;
 }
 
-.total-item {
+.summary-card {
+  position: sticky;
+  top: 76px;
+}
+
+.summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.summary-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 0.6rem 0.8rem;
+  background: #f0f4ff;
   border-radius: 8px;
-  margin-bottom: 0.5rem;
-  color: #fff;
+}
+
+.summary-currency {
+  font-weight: 600;
+  color: #0f3460;
+  font-size: 0.9rem;
+}
+
+.summary-value {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #22863a;
+}
+
+.summary-value.negative {
+  color: #d73a49;
 }
 
 .total-usd {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.8rem;
+  background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
   border-radius: 8px;
-  margin-top: 0.5rem;
   color: #fff;
   font-weight: 600;
+  font-size: 0.9rem;
 }
 
-.total-currency {
-  font-weight: 600;
-}
-
-.total-value {
-  font-size: 1.25rem;
+.total-usd-value {
+  font-size: 1.1rem;
   font-weight: 700;
 }
 </style>

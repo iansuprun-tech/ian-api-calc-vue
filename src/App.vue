@@ -1,86 +1,110 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
-import HelloWorld from './components/HelloWorld.vue'
+import { RouterView, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const router = useRouter()
+
+function logout() {
+  auth.logout()
+  router.push('/login')
+}
 </script>
 
 <template>
-  <header>
-    <img alt="Vue logo" class="logo" src="@/assets/logo.svg" width="125" height="125" />
+  <div class="app" :class="{ 'with-nav': auth.isAuthenticated }">
+    <header v-if="auth.isAuthenticated" class="topbar">
+      <div class="topbar-left">
+        <h1 class="topbar-logo">FinTrack</h1>
+        <nav class="topbar-nav">
+          <RouterLink to="/accounts" class="nav-link">Счета</RouterLink>
+        </nav>
+      </div>
+      <button @click="logout" class="logout-btn">Выйти</button>
+    </header>
 
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
-
-      <nav>
-        <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/about">About</RouterLink>
-        <RouterLink to="/accounts">Счета</RouterLink>
-      </nav>
-    </div>
-  </header>
-
-  <RouterView />
+    <main class="main-content">
+      <RouterView />
+    </main>
+  </div>
 </template>
 
 <style scoped>
-header {
-  line-height: 1.5;
-  max-height: 100vh;
+.app {
+  min-height: 100vh;
 }
 
-.logo {
-  display: block;
-  margin: 0 auto 2rem;
+.app.with-nav {
+  display: flex;
+  flex-direction: column;
 }
 
-nav {
-  width: 100%;
-  font-size: 12px;
-  text-align: center;
-  margin-top: 2rem;
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  height: 60px;
+  background: #0f3460;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
 }
 
-nav a.router-link-exact-active {
-  color: var(--color-text);
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
 }
 
-nav a.router-link-exact-active:hover {
-  background-color: transparent;
+.topbar-logo {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
 
-nav a {
-  display: inline-block;
-  padding: 0 1rem;
-  border-left: 1px solid var(--color-border);
+.topbar-nav {
+  display: flex;
+  gap: 0.5rem;
 }
 
-nav a:first-of-type {
-  border: 0;
+.nav-link {
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  transition: all 0.2s;
 }
 
-@media (min-width: 1024px) {
-  header {
-    display: flex;
-    place-items: center;
-    padding-right: calc(var(--section-gap) / 2);
-  }
+.nav-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
 
-  .logo {
-    margin: 0 2rem 0 0;
-  }
+.nav-link.router-link-active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
 
-  header .wrapper {
-    display: flex;
-    place-items: flex-start;
-    flex-wrap: wrap;
-  }
+.logout-btn {
+  padding: 0.4rem 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
 
-  nav {
-    text-align: left;
-    margin-left: -1rem;
-    font-size: 1rem;
+.logout-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
 
-    padding: 1rem 0;
-    margin-top: 1rem;
-  }
+.main-content {
+  flex: 1;
 }
 </style>

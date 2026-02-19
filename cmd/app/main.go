@@ -30,7 +30,6 @@ import (
 const exchangeRateAPIURL = "https://v6.exchangerate-api.com/v6/"
 
 // rateFetcher — реализация usecase.RateFetcher через HTTP-запрос к exchangerate-api.com.
-// Вынесена в main, чтобы usecase не зависел от конкретного HTTP-клиента.
 type rateFetcher struct {
 	apiKey string
 }
@@ -91,45 +90,52 @@ func main() {
 	accountRepo := postgres.NewAccountRepo(db)
 	transactionRepo := postgres.NewTransactionRepo(db)
 	rateRepo := postgres.NewRateRepo(db)
+	userRepo := postgres.NewUserRepo(db)
 
 	// 2. Создаём юзкейсы (бизнес-логика), передавая им репозитории
 	accountUC := usecase.NewAccountUseCase(accountRepo)
 	transactionUC := usecase.NewTransactionUseCase(transactionRepo)
 	fetcher := &rateFetcher{apiKey: os.Getenv("EXCHANGE_RATE_API_KEY")}
 	rateUC := usecase.NewRateUseCase(rateRepo, fetcher)
+	authUC := usecase.NewAuthUseCase(userRepo)
 
 	// 3. Создаём хендлеры (HTTP-слой), передавая им юзкейсы
 	accountHandler := handler.NewAccountHandler(accountUC)
 	transactionHandler := handler.NewTransactionHandler(transactionUC, accountUC)
 	rateHandler := handler.NewRateHandler(rateUC)
+	authHandler := handler.NewAuthHandler(authUC)
 
 	// Запускаем фоновое обновление курсов валют
 	rateUC.StartUpdater()
 
-	// Настройка маршрутов
-	http.HandleFunc("/api/accounts", accountHandler.HandleList) // GET — список, POST — создать
-	http.HandleFunc("/api/accounts/", func(w http.ResponseWriter, r *http.Request) {
-		// Роутинг: /api/accounts/{id}/transactions → transactionHandler
-		//          /api/accounts/{id}               → accountHandler
+	// Публичные маршруты (без авторизации)
+	http.HandleFunc("/api/register", authHandler.HandleRegister)
+	http.HandleFunc("/api/login", authHandler.HandleLogin)
+	http.HandleFunc("/api/rates", rateHandler.Handle)
+
+	// Защищённые маршруты (требуют JWT)
+	http.HandleFunc("/api/accounts", handler.AuthMiddleware(accountHandler.HandleList))
+	http.HandleFunc("/api/accounts/", handler.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if len(path) > len("/api/accounts/") && strings.Contains(path, "/transactions") {
 			transactionHandler.Handle(w, r)
 		} else {
 			accountHandler.HandleByID(w, r)
 		}
-	})
-	http.HandleFunc("/api/rates", rateHandler.Handle)
+	}))
 
 	// Запуск сервера
 	fmt.Println("Сервер запущен на http://localhost:8080")
 	fmt.Println("Endpoints:")
-	fmt.Println("  GET    /api/accounts                  - список всех счетов")
-	fmt.Println("  POST   /api/accounts                  - создать счёт")
-	fmt.Println("  GET    /api/accounts/{id}              - получить счёт")
-	fmt.Println("  DELETE /api/accounts/{id}              - удалить счёт")
-	fmt.Println("  GET    /api/accounts/{id}/transactions - история операций")
-	fmt.Println("  POST   /api/accounts/{id}/transactions - добавить операцию")
-	fmt.Println("  GET    /api/rates                      - список курсов валют")
+	fmt.Println("  POST   /api/register                   - регистрация")
+	fmt.Println("  POST   /api/login                      - вход")
+	fmt.Println("  GET    /api/accounts                    - список всех счетов")
+	fmt.Println("  POST   /api/accounts                    - создать счёт")
+	fmt.Println("  GET    /api/accounts/{id}               - получить счёт")
+	fmt.Println("  DELETE /api/accounts/{id}               - удалить счёт")
+	fmt.Println("  GET    /api/accounts/{id}/transactions  - история операций")
+	fmt.Println("  POST   /api/accounts/{id}/transactions  - добавить операцию")
+	fmt.Println("  GET    /api/rates                       - список курсов валют")
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

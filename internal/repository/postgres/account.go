@@ -16,15 +16,15 @@ func NewAccountRepo(db *sql.DB) *AccountRepo {
 	return &AccountRepo{db: db}
 }
 
-// GetAll — получить все счета с вычисленными балансами.
-// Баланс = сумма всех транзакций по счёту (COALESCE на случай, если транзакций нет).
-func (r *AccountRepo) GetAll() ([]entity.Account, error) {
+// GetAll — получить все счета пользователя с вычисленными балансами.
+func (r *AccountRepo) GetAll(userID int) ([]entity.Account, error) {
 	rows, err := r.db.Query(`
-		SELECT a.id, a.currency, a.comment, a.created_at,
+		SELECT a.id, a.user_id, a.currency, a.comment, a.created_at,
 		       COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id), 0) AS balance
 		FROM accounts a
+		WHERE a.user_id = $1
 		ORDER BY a.id
-	`)
+	`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +33,7 @@ func (r *AccountRepo) GetAll() ([]entity.Account, error) {
 	accounts := []entity.Account{}
 	for rows.Next() {
 		var a entity.Account
-		if err := rows.Scan(&a.ID, &a.Currency, &a.Comment, &a.CreatedAt, &a.Balance); err != nil {
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Currency, &a.Comment, &a.CreatedAt, &a.Balance); err != nil {
 			return nil, err
 		}
 		accounts = append(accounts, a)
@@ -41,39 +41,39 @@ func (r *AccountRepo) GetAll() ([]entity.Account, error) {
 	return accounts, nil
 }
 
-// GetByID — получить один счёт по ID с вычисленным балансом.
-func (r *AccountRepo) GetByID(id int) (entity.Account, error) {
+// GetByID — получить один счёт по ID (только если принадлежит пользователю).
+func (r *AccountRepo) GetByID(id, userID int) (entity.Account, error) {
 	var a entity.Account
 	err := r.db.QueryRow(`
-		SELECT a.id, a.currency, a.comment, a.created_at,
+		SELECT a.id, a.user_id, a.currency, a.comment, a.created_at,
 		       COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id), 0) AS balance
 		FROM accounts a
-		WHERE a.id = $1
-	`, id).Scan(&a.ID, &a.Currency, &a.Comment, &a.CreatedAt, &a.Balance)
+		WHERE a.id = $1 AND a.user_id = $2
+	`, id, userID).Scan(&a.ID, &a.UserID, &a.Currency, &a.Comment, &a.CreatedAt, &a.Balance)
 	return a, err
 }
 
 // Create — создать новый счёт. Возвращает созданный счёт с присвоенным ID.
 func (r *AccountRepo) Create(account entity.Account) (entity.Account, error) {
 	err := r.db.QueryRow(
-		"INSERT INTO accounts (currency, comment) VALUES ($1, $2) RETURNING id, created_at",
-		account.Currency, account.Comment,
+		"INSERT INTO accounts (currency, comment, user_id) VALUES ($1, $2, $3) RETURNING id, created_at",
+		account.Currency, account.Comment, account.UserID,
 	).Scan(&account.ID, &account.CreatedAt)
 	return account, err
 }
 
-// Delete — удалить счёт по ID. Транзакции удалятся каскадом (ON DELETE CASCADE).
-func (r *AccountRepo) Delete(id int) (int64, error) {
-	result, err := r.db.Exec("DELETE FROM accounts WHERE id = $1", id)
+// Delete — удалить счёт по ID (только если принадлежит пользователю).
+func (r *AccountRepo) Delete(id, userID int) (int64, error) {
+	result, err := r.db.Exec("DELETE FROM accounts WHERE id = $1 AND user_id = $2", id, userID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-// Exists — проверить существование счёта по ID.
-func (r *AccountRepo) Exists(id int) (bool, error) {
+// Exists — проверить существование счёта у пользователя.
+func (r *AccountRepo) Exists(id, userID int) (bool, error) {
 	var exists bool
-	err := r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1)", id).Scan(&exists)
+	err := r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1 AND user_id = $2)", id, userID).Scan(&exists)
 	return exists, err
 }

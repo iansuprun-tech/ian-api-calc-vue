@@ -16,16 +16,19 @@ type TransactionHandler struct {
 }
 
 // NewTransactionHandler — конструктор обработчика транзакций.
-// Принимает юзкейс транзакций и юзкейс счетов (для проверки существования счёта).
 func NewTransactionHandler(txUC *usecase.TransactionUseCase, accountUC *usecase.AccountUseCase) *TransactionHandler {
 	return &TransactionHandler{txUC: txUC, accountUC: accountUC}
 }
 
 // Handle — обработка запросов к /api/accounts/{id}/transactions.
-// GET  — получить историю операций по счёту (новые сверху).
-// POST — добавить операцию {amount, comment}.
 func (h *TransactionHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, `{"error": "Требуется авторизация"}`, http.StatusUnauthorized)
+		return
+	}
 
 	// Извлекаем account_id из URL: /api/accounts/123/transactions → "123"
 	path := strings.TrimPrefix(r.URL.Path, "/api/accounts/")
@@ -41,8 +44,8 @@ func (h *TransactionHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, что счёт существует
-	exists, err := h.accountUC.Exists(accountID)
+	// Проверяем, что счёт существует и принадлежит пользователю
+	exists, err := h.accountUC.Exists(accountID, userID)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка проверки счёта"}`, http.StatusInternalServerError)
 		return
@@ -80,7 +83,6 @@ func (h *TransactionHandler) create(w http.ResponseWriter, r *http.Request, acco
 		return
 	}
 
-	// Привязываем транзакцию к счёту из URL
 	transaction.AccountID = accountID
 
 	transaction, err := h.txUC.Create(transaction)

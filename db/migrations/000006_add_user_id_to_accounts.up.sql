@@ -1,0 +1,1 @@
+ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id);

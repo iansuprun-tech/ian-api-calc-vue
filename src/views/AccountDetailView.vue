@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import LightLayout from '@/layouts/LightLayout.vue'
+import { apiFetch } from '@/api'
 
-// Тип счёта — приходит с бэкенда, баланс вычисляется через SUM транзакций
 type Account = {
   id: number
   currency: string
@@ -12,7 +11,6 @@ type Account = {
   balance: number
 }
 
-// Тип транзакции (операции по счёту)
 type Transaction = {
   id: number
   account_id: number
@@ -30,12 +28,10 @@ const txAmount = ref('')
 const txComment = ref('')
 const error = ref('')
 
-// ID счёта из URL
 const accountId = Number(route.params.id)
 
-// Загрузка данных счёта
 function loadAccount() {
-  fetch(`/api/accounts/${accountId}`)
+  apiFetch(`/api/accounts/${accountId}`)
     .then((response) => {
       if (!response.ok) throw new Error('Счёт не найден')
       return response.json()
@@ -44,9 +40,8 @@ function loadAccount() {
     .catch(() => (error.value = 'Счёт не найден'))
 }
 
-// Загрузка истории транзакций (новые сверху)
 function loadTransactions() {
-  fetch(`/api/accounts/${accountId}/transactions`)
+  apiFetch(`/api/accounts/${accountId}/transactions`)
     .then((response) => response.json())
     .then((data) => (transactions.value = data))
 }
@@ -56,27 +51,21 @@ onMounted(() => {
   loadTransactions()
 })
 
-// Добавить операцию — пополнение (положительная сумма)
 async function deposit() {
   const amount = parseFloat(txAmount.value)
   if (!amount || amount <= 0) return
-
   await createTransaction(amount)
 }
 
-// Добавить операцию — списание (отрицательная сумма)
 async function withdraw() {
   const amount = parseFloat(txAmount.value)
   if (!amount || amount <= 0) return
-
   await createTransaction(-amount)
 }
 
-// Создание транзакции через API
 async function createTransaction(amount: number) {
-  const response = await fetch(`/api/accounts/${accountId}/transactions`, {
+  const response = await apiFetch(`/api/accounts/${accountId}/transactions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       amount: amount,
       comment: txComment.value.trim(),
@@ -91,308 +80,295 @@ async function createTransaction(amount: number) {
   }
 }
 
-// Форматирование даты для отображения
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   return date.toLocaleString('ru-RU')
 }
 
-// Назад к списку счетов
 function goBack() {
   router.push('/accounts')
 }
 </script>
 
 <template>
-  <LightLayout>
-    <div class="detail-container">
-      <div class="detail-card">
-        <!-- Кнопка «Назад» -->
-        <button @click="goBack" class="btn btn-back">← Назад к счетам</button>
+  <div class="page">
+    <button @click="goBack" class="back-link">&larr; Назад к счетам</button>
 
-        <!-- Ошибка -->
-        <div v-if="error" class="error-banner">{{ error }}</div>
+    <div v-if="error" class="error-banner">{{ error }}</div>
 
-        <!-- Информация о счёте -->
-        <div v-if="account" class="account-info-section">
-          <h1 class="detail-title">
-            {{ account.currency }}
-            <span class="detail-comment" v-if="account.comment">— {{ account.comment }}</span>
-          </h1>
-          <div class="balance-display" :class="{ negative: account.balance < 0 }">
-            Баланс: {{ account.balance.toFixed(2) }} {{ account.currency }}
+    <div v-if="account" class="detail-grid">
+      <!-- Карточка счёта -->
+      <div class="card account-card">
+        <div class="account-header">
+          <div>
+            <h1 class="account-name">{{ account.currency }}</h1>
+            <p class="account-comment" v-if="account.comment">{{ account.comment }}</p>
           </div>
-
-          <!-- Форма добавления операции -->
-          <div class="transaction-form">
-            <h2 class="form-title">Новая операция</h2>
-            <div class="form-row">
-              <input
-                v-model="txAmount"
-                placeholder="Сумма"
-                type="number"
-                step="0.01"
-                min="0.01"
-                class="input-field input-amount"
-              />
-              <input
-                v-model="txComment"
-                placeholder="Комментарий"
-                class="input-field input-comment"
-              />
-            </div>
-            <div class="form-buttons">
-              <button @click="deposit" class="btn btn-deposit">Пополнить</button>
-              <button @click="withdraw" class="btn btn-withdraw">Списать</button>
-            </div>
+          <div class="balance-badge" :class="{ negative: account.balance < 0 }">
+            {{ account.balance.toFixed(2) }} {{ account.currency }}
           </div>
+        </div>
+      </div>
 
-          <!-- История операций -->
-          <div class="transactions-section">
-            <h2 class="section-title">История операций</h2>
+      <!-- Форма операции -->
+      <div class="card">
+        <h2 class="card-title">Новая операция</h2>
+        <div class="tx-form">
+          <input
+            v-model="txAmount"
+            placeholder="Сумма"
+            type="number"
+            step="0.01"
+            min="0.01"
+            class="input-field"
+          />
+          <input
+            v-model="txComment"
+            placeholder="Комментарий"
+            class="input-field input-grow"
+          />
+          <div class="tx-buttons">
+            <button @click="deposit" class="btn btn-success">Пополнить</button>
+            <button @click="withdraw" class="btn btn-danger">Списать</button>
+          </div>
+        </div>
+      </div>
 
-            <div v-if="transactions.length === 0" class="empty-state">
-              Операций пока нет
+      <!-- История операций -->
+      <div class="card">
+        <h2 class="card-title">История операций</h2>
+
+        <div v-if="transactions.length === 0" class="empty-state">
+          Операций пока нет
+        </div>
+
+        <div class="tx-list">
+          <div
+            v-for="tx in transactions"
+            :key="tx.id"
+            class="tx-item"
+            :class="{ income: tx.amount > 0, expense: tx.amount < 0 }"
+          >
+            <div class="tx-left">
+              <span class="tx-amount">
+                {{ tx.amount > 0 ? '+' : '' }}{{ tx.amount.toFixed(2) }}
+              </span>
+              <span class="tx-comment" v-if="tx.comment">{{ tx.comment }}</span>
             </div>
-
-            <div class="transactions-list">
-              <div
-                v-for="tx in transactions"
-                :key="tx.id"
-                class="transaction-item"
-                :class="{ income: tx.amount > 0, expense: tx.amount < 0 }"
-              >
-                <div class="tx-left">
-                  <span class="tx-amount">
-                    {{ tx.amount > 0 ? '+' : '' }}{{ tx.amount.toFixed(2) }}
-                  </span>
-                  <span class="tx-comment" v-if="tx.comment">{{ tx.comment }}</span>
-                </div>
-                <span class="tx-date">{{ formatDate(tx.created_at) }}</span>
-              </div>
-            </div>
+            <span class="tx-date">{{ formatDate(tx.created_at) }}</span>
           </div>
         </div>
       </div>
     </div>
-  </LightLayout>
+  </div>
 </template>
 
 <style scoped>
-.detail-container {
-  width: 100%;
-  max-width: 550px;
-}
-
-.detail-card {
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+.page {
   padding: 2rem;
+  max-width: 700px;
+  margin: 0 auto;
 }
 
-.btn-back {
+.back-link {
   background: none;
   border: none;
-  color: #4a90d9;
+  color: #0f3460;
   cursor: pointer;
   font-size: 0.95rem;
-  padding: 0.5rem 0;
-  margin-bottom: 1rem;
   font-weight: 500;
+  padding: 0;
+  margin-bottom: 1.5rem;
+  display: inline-block;
 }
 
-.btn-back:hover {
-  color: #3a7bc8;
+.back-link:hover {
+  text-decoration: underline;
 }
 
 .error-banner {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background: #fee;
+  color: #c33;
+  border: 1px solid #fcc;
   border-radius: 8px;
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
   text-align: center;
 }
 
-.detail-title {
-  font-size: 1.75rem;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 0.5rem;
+.detail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.detail-comment {
-  font-weight: 400;
-  color: #888;
-  font-size: 1.25rem;
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
-.balance-display {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #28a745;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 10px;
-  text-align: center;
-}
-
-.balance-display.negative {
-  color: #dc3545;
-}
-
-.transaction-form {
-  margin-bottom: 2rem;
-  padding: 1.25rem;
-  background: #f0f4f8;
-  border-radius: 10px;
-}
-
-.form-title {
+.card-title {
   font-size: 1.1rem;
   font-weight: 600;
   color: #333;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
 }
 
-.form-row {
+.account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.account-name {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.account-comment {
+  color: #888;
+  font-size: 0.9rem;
+  margin-top: 0.2rem;
+}
+
+.balance-badge {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #22863a;
+  background: #f0fdf4;
+  padding: 0.6rem 1.2rem;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.balance-badge.negative {
+  color: #d73a49;
+  background: #fef2f2;
+}
+
+.tx-form {
   display: flex;
   gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .input-field {
-  padding: 0.75rem 1rem;
-  border: 2px solid #e0e0e0;
+  padding: 0.65rem 0.9rem;
+  border: 1.5px solid #ddd;
   border-radius: 8px;
-  font-size: 1rem;
+  font-size: 0.95rem;
   transition: border-color 0.2s;
   background: #fff;
   color: #333;
+  width: 120px;
+}
+
+.input-grow {
+  flex: 1;
+  width: auto;
+  min-width: 150px;
 }
 
 .input-field:focus {
   outline: none;
-  border-color: #4a90d9;
+  border-color: #0f3460;
 }
 
-.input-amount {
-  width: 120px;
-  flex: none;
-}
-
-.input-comment {
-  flex: 1;
-}
-
-.form-buttons {
+.tx-buttons {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .btn {
-  padding: 0.75rem 1.25rem;
+  padding: 0.65rem 1rem;
   border: none;
   border-radius: 8px;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
-.btn-deposit {
-  background: #28a745;
+.btn-success {
+  background: #22863a;
   color: #fff;
-  flex: 1;
 }
 
-.btn-deposit:hover {
-  background: #218838;
+.btn-success:hover {
+  background: #1b6e30;
 }
 
-.btn-withdraw {
-  background: #dc3545;
+.btn-danger {
+  background: #d73a49;
   color: #fff;
-  flex: 1;
 }
 
-.btn-withdraw:hover {
-  background: #c82333;
-}
-
-.transactions-section {
-  border-top: 2px solid #e9ecef;
-  padding-top: 1.5rem;
-}
-
-.section-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 1rem;
+.btn-danger:hover {
+  background: #b42d3a;
 }
 
 .empty-state {
   text-align: center;
-  padding: 2rem;
-  color: #888;
-  font-size: 1rem;
+  padding: 2rem 1rem;
+  color: #999;
 }
 
-.transactions-list {
+.tx-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
-.transaction-item {
+.tx-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
+  padding: 0.7rem 0.9rem;
   border-radius: 8px;
-  border-left: 4px solid;
+  border-left: 3px solid;
 }
 
-.transaction-item.income {
-  background: #f0fff4;
-  border-color: #28a745;
+.tx-item.income {
+  background: #f0fdf4;
+  border-color: #22863a;
 }
 
-.transaction-item.expense {
-  background: #fff5f5;
-  border-color: #dc3545;
+.tx-item.expense {
+  background: #fef2f2;
+  border-color: #d73a49;
 }
 
 .tx-left {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.15rem;
 }
 
 .tx-amount {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.95rem;
 }
 
 .income .tx-amount {
-  color: #28a745;
+  color: #22863a;
 }
 
 .expense .tx-amount {
-  color: #dc3545;
+  color: #d73a49;
 }
 
 .tx-comment {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #888;
 }
 
 .tx-date {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #aaa;
   white-space: nowrap;
 }

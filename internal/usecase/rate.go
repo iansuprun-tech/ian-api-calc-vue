@@ -63,11 +63,11 @@ func (uc *RateUseCase) SaveRates() {
 	log.Println("Курсы валют обновлены успешно!")
 }
 
-// StartUpdater запускает фоновое обновление курсов каждые 5 минут.
+// StartUpdater запускает фоновое обновление курсов каждый час.
 // Первый запрос выполняется сразу, далее — по таймеру.
 func (uc *RateUseCase) StartUpdater() {
 	uc.SaveRates()
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(1 * time.Hour)
 
 	go func() {
 		for range ticker.C {

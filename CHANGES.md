@@ -1,671 +1,844 @@
-# Что мы изменили и зачем — простым языком
+# Что изменилось: Авторизация + Редизайн UI
+
+## Оглавление
+
+1. [Общая картина — было / стало](#1-общая-картина--было--стало)
+2. [База данных — новые таблицы](#2-база-данных--новые-таблицы)
+3. [Backend — авторизация (как работает)](#3-backend--авторизация)
+4. [Backend — привязка данных к пользователю](#4-backend--привязка-данных-к-пользователю)
+5. [Frontend — авторизация](#5-frontend--авторизация)
+6. [Frontend — редизайн](#6-frontend--редизайн)
+7. [Курсы валют — новый интервал](#7-курсы-валют)
+8. [Примеры запросов (curl)](#8-примеры-запросов-curl)
+9. [Карта файлов — что добавлено, изменено, удалено](#9-карта-файлов)
 
 ---
 
-## Было vs Стало (общая картина)
+## 1. Общая картина — было / стало
 
-**Раньше** у нас была одна табличка `balances` — это как листочек, где написано:
-
-```
-| USD | 100 |
-| EUR | 50  |
-```
-
-Просто валюта и сумма. Всё. Нельзя узнать откуда взялись деньги, нельзя завести два кошелька в одной валюте.
-
-**Теперь** у нас две таблички — `accounts` (счета) и `transactions` (операции):
+### Было
 
 ```
-СЧЕТА:
-| id | валюта | комментарий      |
-|----|--------|------------------|
-| 1  | USD    | Зарплатный       |
-| 2  | USD    | Копилка          |
-| 3  | EUR    | Путешествия      |
-
-ОПЕРАЦИИ:
-| id | счёт | сумма  | комментарий    |
-|----|------|--------|----------------|
-| 1  | 1    | +5000  | Зарплата       |
-| 2  | 1    | -200   | Продукты       |
-| 3  | 2    | +1000  | Отложил        |
-| 4  | 3    | +500   | Подарок        |
+Любой человек заходит на сайт
+        │
+        ▼
+  GET /api/accounts
+        │
+        ▼
+  Видит ВСЕ счета в системе
+  (общие для всех, нет понятия "мой")
 ```
 
-Баланс счёта = сумма всех его операций. Например, счёт 1: `5000 + (-200) = 4800`.
+- Нет регистрации, нет входа
+- Один человек создал счёт — другой его видит и может удалить
+- На главной странице — логотип Vue, "You did it!", ссылки Home / About
+- Курсы валют обновляются каждые 5 минут (слишком часто для бесплатного API)
+
+### Стало
+
+```
+Пользователь А                          Пользователь Б
+     │                                        │
+  Регистрация                              Регистрация
+  (email + пароль)                         (email + пароль)
+     │                                        │
+  Вход → получает                          Вход → получает
+  JWT-токен                                JWT-токен
+     │                                        │
+     ▼                                        ▼
+  GET /api/accounts                      GET /api/accounts
+  + токен А                              + токен Б
+     │                                        │
+     ▼                                        ▼
+  Видит только                           Видит только
+  СВОИ счета                             СВОИ счета
+```
+
+- Регистрация и вход с JWT-токенами
+- Каждый пользователь видит **только свои** счета
+- Приложение выглядит как реальный финансовый сервис (topbar "FinTrack", карточки)
+- Курсы обновляются **раз в час**
 
 ---
 
-## Архитектура проекта (как устроен код)
+## 2. База данных — новые таблицы
 
-Представь себе пиццерию:
-
-```
-Клиент (браузер)
-    ↓ делает заказ
-Официант (handler) — принимает заказ, отдаёт ответ
-    ↓ передаёт на кухню
-Шеф-повар (usecase) — решает, как готовить
-    ↓ берёт продукты
-Холодильник (repository) — хранит и достаёт данные из БД
-    ↓
-База данных (PostgreSQL) — сами продукты
-```
-
-В коде это 4 папки:
-- `handler/` — принимает HTTP-запросы от браузера
-- `usecase/` — бизнес-логика (что делать с данными)
-- `repository/` — запросы к базе данных (SQL)
-- `entity/` — описание данных (как выглядит "счёт", "транзакция")
-
----
-
-## Шаг 1: Миграции (новые таблицы в базе данных)
-
-### Что такое миграция?
-
-Миграция — это SQL-файл, который говорит базе данных: "Создай новую таблицу" или "Удали таблицу". Как инструкция для строителя.
-
-### Файл `000003_create_accounts_table.up.sql`
+### Миграция 000005 — таблица `users`
 
 ```sql
-CREATE TABLE IF NOT EXISTS accounts (
-    id SERIAL PRIMARY KEY,
-    currency TEXT NOT NULL,
-    comment TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE users (
+    id            SERIAL PRIMARY KEY,        -- уникальный номер (1, 2, 3...)
+    email         TEXT NOT NULL UNIQUE,       -- email, не может повторяться
+    password_hash TEXT NOT NULL,              -- хеш пароля (НЕ сам пароль!)
+    created_at    TIMESTAMP DEFAULT NOW()    -- когда зарегистрировался
 );
 ```
 
-Разберём по строчкам:
+**Зачем `password_hash`, а не `password`?**
 
-| Строка | Что делает |
-|--------|-----------|
-| `CREATE TABLE IF NOT EXISTS accounts` | Создай таблицу "accounts", если её ещё нет |
-| `id SERIAL PRIMARY KEY` | Колонка "id" — автоматический номер (1, 2, 3...), уникальный ключ |
-| `currency TEXT NOT NULL` | Колонка "валюта" — текст, обязательна (не может быть пустой) |
-| `comment TEXT NOT NULL DEFAULT ''` | Колонка "комментарий" — текст, по умолчанию пустая строка |
-| `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | Колонка "дата создания" — автоматически ставит текущее время |
+Пароли **никогда** не хранят в открытом виде. Если кто-то получит доступ к базе, он увидит:
 
-### Файл `000004_create_transactions_table.up.sql`
-
-```sql
-CREATE TABLE IF NOT EXISTS transactions (
-    id SERIAL PRIMARY KEY,
-    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    amount DOUBLE PRECISION NOT NULL,
-    comment TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+```
+email            │ password_hash
+─────────────────┼──────────────────────────────────────
+ivan@mail.com    │ $2a$10$xK3f8j9Qm2kp7Hd...  ← это bcrypt-хеш, 60 символов
+anna@mail.com    │ $2a$10$9Qm2kp4Lz8mN3Xf...  ← из хеша нельзя восстановить пароль
 ```
 
-Новое здесь:
-
-| Строка | Что делает |
-|--------|-----------|
-| `account_id INTEGER NOT NULL REFERENCES accounts(id)` | Ссылка на счёт. Транзакция всегда привязана к конкретному счёту |
-| `ON DELETE CASCADE` | Если удалим счёт — все его транзакции удалятся автоматически |
-| `amount DOUBLE PRECISION NOT NULL` | Сумма — дробное число (может быть +100.50 или -30.00) |
-
-**Аналогия:** `REFERENCES` — это как ярлык на папку. Транзакция "знает", к какому счёту относится. А `CASCADE` — если удалить папку, все файлы внутри тоже удалятся.
-
-### down-файлы
-
-```sql
-DROP TABLE IF EXISTS accounts;
-DROP TABLE IF EXISTS transactions;
+Bcrypt — это алгоритм хеширования. Работает в одну сторону:
+```
+"mypassword"  ──bcrypt──►  "$2a$10$xK3f8j..."  (легко)
+"$2a$10$xK3f8j..."  ──?──►  "mypassword"       (невозможно)
 ```
 
-Это "откат" — если что-то пошло не так, удаляем таблицы. Как кнопка "Отменить".
+При входе мы не расшифровываем хеш, а хешируем введённый пароль и сравниваем хеши.
+
+### Миграция 000006 — колонка `user_id` в accounts
+
+```sql
+ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id);
+```
+
+Теперь каждый счёт «знает», кому он принадлежит:
+
+```
+БЫЛО (таблица accounts):
+id │ currency │ comment
+───┼──────────┼─────────────
+ 1 │ USD      │ Основной        ← чей? Непонятно
+ 2 │ EUR      │ Отпуск          ← чей? Непонятно
+
+СТАЛО (таблица accounts):
+id │ currency │ comment      │ user_id
+───┼──────────┼──────────────┼────────
+ 1 │ USD      │ Основной     │ 1        ← принадлежит Ивану
+ 2 │ EUR      │ Отпуск       │ 1        ← принадлежит Ивану
+ 3 │ RUB      │ Зарплата     │ 2        ← принадлежит Анне
+```
+
+`REFERENCES users(id)` — это внешний ключ (foreign key). БД не позволит записать `user_id = 999`, если пользователя с id=999 нет.
 
 ---
 
-## Шаг 2: Entity (модели данных)
+## 3. Backend — авторизация
 
-### Что такое entity?
+### Как работает регистрация — по шагам
 
-Entity — это описание "как выглядит штука". Как чертёж дома перед строительством.
+```
+Браузер                                Сервер (Go)                         БД
+   │                                       │                                │
+   │  POST /api/register                   │                                │
+   │  {"email":"ivan@mail.com",            │                                │
+   │   "password":"secret123"}             │                                │
+   │ ─────────────────────────────────►    │                                │
+   │                                       │                                │
+   │                          1. Получает email и password                  │
+   │                          2. Хеширует пароль через bcrypt:              │
+   │                             "secret123" → "$2a$10$xK3..."             │
+   │                          3. INSERT INTO users                         │
+   │                             (email, password_hash)  ─────────────►    │
+   │                                       │                                │
+   │                                       │   ◄──── id=1, created_at      │
+   │                                       │                                │
+   │  ◄── 201 Created ────────────────     │                                │
+   │  {"id":1, "email":"ivan@mail.com"}    │                                │
+```
 
-### `internal/entity/account.go`
+**Файл:** `internal/usecase/auth.go` → метод `Register`
 
 ```go
-type Account struct {
-    ID        int     `json:"id"`
-    Currency  string  `json:"currency"`
-    Comment   string  `json:"comment"`
-    CreatedAt string  `json:"created_at"`
-    Balance   float64 `json:"balance"`
+func (uc *AuthUseCase) Register(email, password string) (entity.User, error) {
+    // Хешируем пароль (bcrypt добавляет «соль» — случайные байты)
+    hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    // hash = "$2a$10$xK3f8j9Qm2kp7Hd..."
+
+    // Сохраняем в БД (email + хеш, НЕ пароль)
+    return uc.repo.Create(email, string(hash))
 }
 ```
 
-Разберём:
+### Как работает вход — по шагам
 
-| Поле | Тип | Что это |
-|------|-----|---------|
-| `ID` | `int` | Номер счёта (1, 2, 3...) |
-| `Currency` | `string` | Валюта ("USD", "EUR", "RUB") |
-| `Comment` | `string` | Комментарий ("Зарплатный", "Копилка") |
-| `CreatedAt` | `string` | Когда создан |
-| `Balance` | `float64` | Баланс — **не хранится в БД!** Вычисляется как сумма транзакций |
+```
+Браузер                                Сервер                              БД
+   │                                       │                                │
+   │  POST /api/login                      │                                │
+   │  {"email":"ivan@mail.com",            │                                │
+   │   "password":"secret123"}             │                                │
+   │ ─────────────────────────────────►    │                                │
+   │                                       │                                │
+   │                          1. Ищет пользователя по email ──────────►    │
+   │                                       │                                │
+   │                                       │   ◄── user (id=1, hash=...)   │
+   │                                       │                                │
+   │                          2. Сравнивает: bcrypt.Compare(               │
+   │                               хеш_из_базы,                            │
+   │                               "secret123"                             │
+   │                             ) → совпало!                              │
+   │                                       │                                │
+   │                          3. Создаёт JWT-токен:                        │
+   │                             { user_id: 1, email: "...", exp: ... }    │
+   │                             + подписывает секретным ключом            │
+   │                                       │                                │
+   │  ◄── 200 OK ─────────────────────     │                                │
+   │  {"token": "eyJhbGci..."}             │                                │
+```
 
-**Что такое `` `json:"id"` ``?** Это подсказка для Go: "Когда отправляешь этот объект в браузер как JSON, называй поле `id`, а не `ID`". Браузер получит:
+### Что внутри JWT-токена?
+
+JWT — это строка из трёх частей, разделённых точками:
+
+```
+eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxLCJlbWFpbCI6Iml2YW5AbWFpbC5jb20iLCJleHAiOjE3MDg1MjQ4MDB9.xxxxx
+└──── заголовок ─────┘└───────────────────── данные (payload) ──────────────────────┘└─ подпись ─┘
+```
+
+Средняя часть (payload) — это Base64-закодированный JSON:
 
 ```json
-{"id": 1, "currency": "USD", "comment": "Зарплатный", "balance": 4800}
-```
-
-### `internal/entity/transaction.go`
-
-```go
-type Transaction struct {
-    ID        int     `json:"id"`
-    AccountID int     `json:"account_id"`
-    Amount    float64 `json:"amount"`
-    Comment   string  `json:"comment"`
-    CreatedAt string  `json:"created_at"`
+{
+  "user_id": 1,                 // ID пользователя — по нему фильтруем данные
+  "email": "ivan@mail.com",
+  "exp": 1740227200             // срок действия — через 72 часа
 }
 ```
 
-| Поле | Что это | Пример |
-|------|---------|--------|
-| `AccountID` | К какому счёту относится | `1` |
-| `Amount` | Сумма: `+` = пополнение, `-` = списание | `+5000` или `-200` |
-| `Comment` | За что операция | "Зарплата", "Продукты" |
+**Подпись** — гарантия, что токен не подделан. Сервер знает секретный ключ и может проверить подпись. Если кто-то изменит `user_id: 1` на `user_id: 2` — подпись не совпадёт, и сервер отклонит токен.
 
----
+### JWT Middleware — как защищены маршруты
 
-## Шаг 3: Repository (работа с базой данных)
+Middleware — это «фильтр», который стоит перед обработчиком запроса:
 
-### Что такое repository?
+```
+Запрос от браузера
+        │
+        ▼
+  ┌─────────────────────────────────┐
+  │        AuthMiddleware            │
+  │                                  │
+  │  1. Есть заголовок               │
+  │     Authorization: Bearer XXX?   │
+  │     Нет → 401 "Требуется        │
+  │            авторизация"          │
+  │                                  │
+  │  2. Парсим JWT-токен             │
+  │     Невалидный → 401             │
+  │                                  │
+  │  3. Извлекаем user_id из токена  │
+  │     Кладём в context запроса     │
+  │                                  │
+  │  4. Пропускаем дальше ────────── │ ──► Handler
+  └─────────────────────────────────┘
+```
 
-Repository — это "переводчик" между Go-кодом и SQL-запросами. Go не понимает SQL напрямую, а repository говорит: "Хочешь все счета? Сейчас спрошу у базы".
-
-### `internal/repository/postgres/account.go`
-
-#### Получить все счета (`GetAll`)
+**Файл:** `internal/handler/middleware.go`
 
 ```go
-func (r *AccountRepo) GetAll() ([]entity.Account, error) {
-    rows, err := r.db.Query(`
-        SELECT a.id, a.currency, a.comment, a.created_at,
-               COALESCE(
-                   (SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id),
-                   0
-               ) AS balance
-        FROM accounts a
-        ORDER BY a.id
-    `)
-    ...
+func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        // 1. Читаем заголовок "Authorization: Bearer eyJhbGci..."
+        authHeader := r.Header.Get("Authorization")
+        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+        // 2. Парсим и проверяем JWT
+        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+            return []byte(secret), nil  // проверяем подпись секретным ключом
+        })
+
+        // 3. Извлекаем user_id и кладём в context
+        claims := token.Claims.(jwt.MapClaims)
+        userID := int(claims["user_id"].(float64))
+        ctx := context.WithValue(r.Context(), userIDKey, userID)
+
+        // 4. Передаём дальше с обновлённым context
+        next(w, r.WithContext(ctx))
+    }
 }
 ```
 
-Что тут происходит:
-
-1. `SELECT ... FROM accounts a` — берём все счета
-2. `(SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id)` — для каждого счёта считаем сумму всех его транзакций
-3. `COALESCE(..., 0)` — если транзакций нет, вернуть 0 (а не NULL)
-
-**Аналогия с COALESCE:** Ты спрашиваешь "Сколько у меня денег?". Если есть операции — считаем. Если операций ноль — отвечаем "0", а не "не знаю".
-
-#### Создать счёт (`Create`)
-
-```go
-func (r *AccountRepo) Create(account entity.Account) (entity.Account, error) {
-    err := r.db.QueryRow(
-        "INSERT INTO accounts (currency, comment) VALUES ($1, $2) RETURNING id, created_at",
-        account.Currency, account.Comment,
-    ).Scan(&account.ID, &account.CreatedAt)
-    return account, err
-}
-```
-
-1. `INSERT INTO accounts (currency, comment) VALUES ($1, $2)` — вставляем новую строку
-2. `$1, $2` — это "заглушки" для защиты от SQL-инъекций. Go подставит туда `account.Currency` и `account.Comment`
-3. `RETURNING id, created_at` — база сама сгенерирует id и дату, и вернёт их нам
-4. `.Scan(&account.ID, &account.CreatedAt)` — записываем возвращённые значения в наш объект
-
-**Зачем `$1, $2` вместо прямой вставки?** Безопасность. Если пользователь введёт `'; DROP TABLE accounts; --` как комментарий, `$1` безопасно обработает это как обычный текст.
-
-#### Удалить счёт (`Delete`)
-
-```go
-func (r *AccountRepo) Delete(id int) (int64, error) {
-    result, err := r.db.Exec("DELETE FROM accounts WHERE id = $1", id)
-    ...
-    return result.RowsAffected()
-}
-```
-
-`RowsAffected()` возвращает количество удалённых строк. Если 0 — значит такого счёта не было.
-
-### `internal/repository/postgres/transaction.go`
-
-#### Получить транзакции по счёту (`GetByAccountID`)
-
-```go
-rows, err := r.db.Query(
-    "SELECT id, account_id, amount, comment, created_at FROM transactions WHERE account_id = $1 ORDER BY created_at DESC",
-    accountID,
-)
-```
-
-`ORDER BY created_at DESC` — сортировка от новых к старым. DESC = descending = по убыванию.
-
-#### Создать транзакцию (`Create`)
-
-```go
-err := r.db.QueryRow(
-    "INSERT INTO transactions (account_id, amount, comment) VALUES ($1, $2, $3) RETURNING id, created_at",
-    transaction.AccountID, transaction.Amount, transaction.Comment,
-).Scan(&transaction.ID, &transaction.CreatedAt)
-```
-
-Тот же паттерн: вставляем строку, получаем назад `id` и `created_at`.
-
----
-
-## Шаг 4: UseCase (бизнес-логика)
-
-### Что такое usecase?
-
-UseCase — это "менеджер", который решает что делать. Сейчас он простой (просто вызывает repository), но если добавить правила (например, "нельзя списать больше, чем есть на счёте"), они будут именно тут.
-
-### `internal/usecase/account.go`
-
-```go
-// Интерфейс — контракт: "Репозиторий должен уметь вот это"
-type AccountRepository interface {
-    GetAll() ([]entity.Account, error)
-    GetByID(id int) (entity.Account, error)
-    Create(account entity.Account) (entity.Account, error)
-    Delete(id int) (int64, error)
-    Exists(id int) (bool, error)
-}
-
-// UseCase знает только про интерфейс, а не про конкретную реализацию
-type AccountUseCase struct {
-    repo AccountRepository  // ← это интерфейс, не конкретный postgres-репозиторий
-}
-```
-
-**Зачем интерфейс?** Представь, что `AccountRepository` — это розетка. Ты можешь воткнуть туда PostgreSQL, MySQL, или даже "фейковый" репозиторий для тестов. UseCase не знает и не заботится что внутри — главное, чтобы были нужные методы.
-
-```
-UseCase → [интерфейс AccountRepository] ← PostgresRepo
-                                         ← MySQLRepo (в будущем)
-                                         ← MockRepo (для тестов)
-```
-
----
-
-## Шаг 5: Handler (HTTP-обработчики)
-
-### Что такое handler?
-
-Handler — это "официант". Браузер посылает HTTP-запрос, handler его принимает, просит usecase выполнить работу, и возвращает ответ.
-
-### `internal/handler/account.go`
-
-#### Маршрутизация запросов
+В handler'е достаём user_id:
 
 ```go
 func (h *AccountHandler) HandleList(w http.ResponseWriter, r *http.Request) {
-    switch r.Method {
-    case http.MethodGet:    // GET /api/accounts → получить все счета
-        h.getAll(w, r)
-    case http.MethodPost:   // POST /api/accounts → создать счёт
-        h.create(w, r)
-    }
+    userID, _ := UserIDFromContext(r.Context())
+    // userID = 1 (из токена Ивана)
+    // userID = 2 (из токена Анны)
+
+    accounts, _ := h.uc.GetAll(userID)
+    // → SELECT ... FROM accounts WHERE user_id = 1
 }
 ```
 
-**Что такое `w` и `r`?**
-- `r` (request) — входящий запрос от браузера. Содержит метод (GET/POST), URL, тело запроса
-- `w` (writer) — через него мы пишем ответ обратно в браузер
+### Какие маршруты защищены?
 
-**Аналогия:**
-- `r` — записка от клиента: "Хочу пиццу Маргарита"
-- `w` — поднос, на который кладём готовую пиццу
+```
+/api/register                → Открыт (без токена)
+/api/login                   → Открыт (без токена)
+/api/rates                   → Открыт (без токена)
 
-#### Создание счёта
+/api/accounts                → ЗАЩИЩЁН (нужен токен)
+/api/accounts/{id}           → ЗАЩИЩЁН
+/api/accounts/{id}/transactions → ЗАЩИЩЁН
+```
+
+В `main.go` это выглядит так:
 
 ```go
-func (h *AccountHandler) create(w http.ResponseWriter, r *http.Request) {
-    // 1. Читаем JSON из тела запроса
-    var account entity.Account
-    json.NewDecoder(r.Body).Decode(&account)
+// Открытые
+http.HandleFunc("/api/register", authHandler.HandleRegister)
+http.HandleFunc("/api/login",    authHandler.HandleLogin)
+http.HandleFunc("/api/rates",    rateHandler.Handle)
 
-    // 2. Просим usecase создать счёт
-    account, err := h.uc.Create(account)
-
-    // 3. Отправляем ответ: статус 201 (Created) + созданный счёт как JSON
-    w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(account)
-}
+// Защищённые — обёрнуты в AuthMiddleware
+http.HandleFunc("/api/accounts",  handler.AuthMiddleware(accountHandler.HandleList))
+http.HandleFunc("/api/accounts/", handler.AuthMiddleware(func(w, r) { ... }))
 ```
-
-Браузер отправляет:
-```json
-POST /api/accounts
-{"currency": "USD", "comment": "Зарплатный"}
-```
-
-Сервер отвечает:
-```json
-201 Created
-{"id": 1, "currency": "USD", "comment": "Зарплатный", "created_at": "2026-02-19...", "balance": 0}
-```
-
-### `internal/handler/transaction.go`
-
-#### Парсинг URL
-
-```go
-// URL: /api/accounts/5/transactions
-path := strings.TrimPrefix(r.URL.Path, "/api/accounts/")
-// path = "5/transactions"
-
-parts := strings.SplitN(path, "/", 2)
-// parts = ["5", "transactions"]
-
-accountID, _ := strconv.Atoi(parts[0])
-// accountID = 5
-```
-
-Пошагово:
-1. Убираем `/api/accounts/` из начала → остаётся `5/transactions`
-2. Разрезаем по `/` на 2 части → `["5", "transactions"]`
-3. Первая часть — это ID счёта → преобразуем строку `"5"` в число `5`
 
 ---
 
-## Шаг 6: main.go (точка входа)
+## 4. Backend — привязка данных к пользователю
 
-### Что делает main.go?
+### Что изменилось в SQL-запросах
 
-Это "директор" — собирает всех вместе и запускает сервер.
+Ключевое изменение: везде добавлен `WHERE user_id = $X`.
+
+**Было** — список всех счетов (для всех):
+
+```sql
+SELECT ... FROM accounts ORDER BY id
+```
+
+**Стало** — только счета текущего пользователя:
+
+```sql
+SELECT ... FROM accounts WHERE user_id = $1 ORDER BY id
+```
+
+### Полная таблица изменений
+
+| Метод             | Было                          | Стало                                |
+|-------------------|-------------------------------|--------------------------------------|
+| `GetAll()`        | Все счета                     | `GetAll(userID)` — только свои       |
+| `GetByID(id)`     | Любой счёт по id              | `GetByID(id, userID)` — только свой  |
+| `Create(account)` | Без привязки                  | `account.UserID = userID` — привязка |
+| `Delete(id)`      | Любой счёт                    | `Delete(id, userID)` — только свой   |
+| `Exists(id)`      | Любой счёт                    | `Exists(id, userID)` — только свой   |
+
+### Пример: защита от доступа к чужим данным
+
+```
+Иван (user_id=1) пытается удалить счёт Анны (id=3, user_id=2):
+
+  DELETE /api/accounts/3
+  Authorization: Bearer <токен Ивана, user_id=1>
+
+  1. Middleware: user_id = 1
+  2. Handler:   Delete(id=3, userID=1)
+  3. SQL:       DELETE FROM accounts WHERE id = 3 AND user_id = 1
+  4. Результат: 0 строк удалено (у Ивана нет счёта с id=3)
+  5. Ответ:     404 "Счёт не найден"
+
+  ✅ Счёт Анны в безопасности
+```
+
+### То же самое с транзакциями
+
+Перед добавлением транзакции проверяется, что счёт принадлежит пользователю:
 
 ```go
-// 1. Создаём репозитории (подключаем к базе)
-accountRepo := postgres.NewAccountRepo(db)
-transactionRepo := postgres.NewTransactionRepo(db)
+// handler/transaction.go
+exists, _ := h.accountUC.Exists(accountID, userID)
+//                                         ^^^^^^ из JWT-токена
 
-// 2. Создаём юзкейсы (даём им репозитории)
-accountUC := usecase.NewAccountUseCase(accountRepo)
-transactionUC := usecase.NewTransactionUseCase(transactionRepo)
-
-// 3. Создаём хендлеры (даём им юзкейсы)
-accountHandler := handler.NewAccountHandler(accountUC)
-transactionHandler := handler.NewTransactionHandler(transactionUC, accountUC)
+if !exists {
+    // 404 — счёт не найден (или не ваш)
+}
 ```
-
-Это и есть **Dependency Injection** (внедрение зависимостей):
-
-```
-main.go создаёт accountRepo
-    ↓ передаёт в
-main.go создаёт accountUC(accountRepo)
-    ↓ передаёт в
-main.go создаёт accountHandler(accountUC)
-```
-
-Каждый слой получает то, что ему нужно, через конструктор. Никто не создаёт свои зависимости сам.
-
-**Аналогия:** Директор нанимает повара и даёт ему ключи от холодильника. Повар не сам добывает ключи — ему дают при устройстве на работу.
-
-### Роутинг (кто обрабатывает какой URL)
-
-```go
-http.HandleFunc("/api/accounts", accountHandler.HandleList)
-http.HandleFunc("/api/accounts/", func(w http.ResponseWriter, r *http.Request) {
-    path := r.URL.Path
-    if strings.Contains(path, "/transactions") {
-        transactionHandler.Handle(w, r)  // /api/accounts/5/transactions
-    } else {
-        accountHandler.HandleByID(w, r)  // /api/accounts/5
-    }
-})
-```
-
-Go стандартная библиотека `net/http` не умеет красивый роутинг как Express.js, поэтому мы вручную проверяем: если в URL есть `/transactions` — отдаём транзакционному хендлеру, иначе — хендлеру счетов.
 
 ---
 
-## Шаг 7: Фронтенд (Vue.js)
+## 5. Frontend — авторизация
 
-### `AccountsView.vue` — главная страница
+### Хранение токена
 
-#### Загрузка данных
+После успешного входа токен сохраняется в `localStorage` браузера:
+
+```
+localStorage
+  └── "token" → "eyJhbGciOiJIUzI1NiJ9..."
+```
+
+`localStorage` — это хранилище в браузере. Данные сохраняются даже после закрытия вкладки.
+
+**Файл:** `src/stores/auth.ts`
 
 ```typescript
-function loadAccounts() {
-  fetch('/api/accounts')           // Делаем HTTP GET запрос
-    .then((response) => response.json())  // Парсим JSON из ответа
-    .then((data) => (accounts.value = data))  // Сохраняем в реактивную переменную
-}
-```
+export const useAuthStore = defineStore('auth', () => {
+    const token = ref(localStorage.getItem('token'))  // при старте читаем из localStorage
 
-`fetch` — это встроенная функция браузера для HTTP-запросов. Работает через промисы (`.then`):
+    function setToken(newToken: string) {
+        token.value = newToken
+        localStorage.setItem('token', newToken)        // сохраняем
+    }
 
-```
-fetch(url)  →  получили ответ  →  распарсили JSON  →  сохранили в переменную
-```
+    function logout() {
+        token.value = null
+        localStorage.removeItem('token')               // удаляем
+    }
 
-#### Создание счёта
-
-```typescript
-async function addAccount() {
-  const response = await fetch('/api/accounts', {
-    method: 'POST',                              // Метод POST = создать
-    headers: { 'Content-Type': 'application/json' },  // Говорим серверу: шлём JSON
-    body: JSON.stringify({                        // Тело запроса
-      currency: code,
-      comment: newComment.value.trim(),
-    }),
-  })
-  if (response.ok) {     // Если сервер ответил 200-299
-    loadAccounts()        // Перезагружаем список
-  }
-}
-```
-
-**`async/await` vs `.then`** — это два способа написать одно и то же:
-
-```typescript
-// Способ 1: .then (цепочка)
-fetch(url).then(r => r.json()).then(data => ...)
-
-// Способ 2: async/await (читается как обычный код)
-const response = await fetch(url)
-const data = await response.json()
-```
-
-#### Итоги по валютам
-
-```typescript
-const currencyTotals = computed(() => {
-  const totals: Record<string, number> = {}
-  accounts.value.forEach((a) => {
-    totals[a.currency] = (totals[a.currency] ?? 0) + a.balance
-  })
-  return totals
+    const isAuthenticated = computed(() => !!token.value)  // есть токен = залогинен
 })
 ```
 
-`computed` — это вычисляемое свойство Vue. Автоматически пересчитывается, когда `accounts` меняется.
+### `apiFetch` — обёртка над fetch
 
-Пример: если есть 2 счёта в USD (баланс 100 и 200) и 1 в EUR (баланс 50):
+Раньше все запросы были простым `fetch()`. Теперь нужно к каждому добавлять заголовок с токеном. Чтобы не копировать это в каждом файле, создана обёртка:
+
+**Файл:** `src/api.ts`
+
 ```
-{ "USD": 300, "EUR": 50 }
+  ┌──────────────────────────────────────────────────┐
+  │  apiFetch('/api/accounts')                        │
+  │                                                    │
+  │  Автоматически:                                    │
+  │  1. Берёт токен из auth store                      │
+  │  2. Добавляет заголовок:                           │
+  │     Authorization: Bearer eyJhbGci...              │
+  │  3. Если ответ 401 (токен истёк):                  │
+  │     → Удаляет токен                                │
+  │     → Перенаправляет на /login                     │
+  └──────────────────────────────────────────────────┘
 ```
 
-`??` — оператор "если null или undefined, то используй правое значение". `totals["USD"] ?? 0` → если USD ещё не в объекте, начинаем с 0.
-
-### `AccountDetailView.vue` — страница одного счёта
-
-#### Пополнение и списание
+**Было** (без авторизации):
 
 ```typescript
-async function deposit() {
-  const amount = parseFloat(txAmount.value)
-  if (!amount || amount <= 0) return
-  await createTransaction(amount)      // +100 → пополнение
-}
-
-async function withdraw() {
-  const amount = parseFloat(txAmount.value)
-  if (!amount || amount <= 0) return
-  await createTransaction(-amount)     // -100 → списание
-}
+fetch('/api/accounts')
+fetch('/api/accounts', { method: 'POST', body: '...' })
 ```
 
-Пользователь вводит `100`. Нажимает "Пополнить" → отправляется `+100`. Нажимает "Списать" → отправляется `-100`.
+**Стало** (с авторизацией):
 
-### Роутер (`router/index.ts`)
+```typescript
+apiFetch('/api/accounts')
+apiFetch('/api/accounts', { method: 'POST', body: '...' })
+```
+
+Просто заменили `fetch` на `apiFetch` — всё остальное делается автоматически.
+
+### Router guard — защита страниц
+
+Роутер (vue-router) теперь проверяет авторизацию перед каждым переходом:
+
+```
+┌─────────────────────────────────────────────┐
+│  router.beforeEach()                         │
+│                                              │
+│  Куда идёт пользователь?                     │
+│                                              │
+│  /login или /register                        │
+│    └── Уже залогинен? → Перекидываем на      │
+│        /accounts (незачем логиниться снова)   │
+│    └── Не залогинен? → Показываем форму      │
+│                                              │
+│  /accounts или /accounts/:id                 │
+│    └── Залогинен? → Показываем страницу      │
+│    └── Не залогинен? → Перекидываем на /login │
+│                                              │
+│  / (корень)                                  │
+│    └── Всегда перекидываем на /accounts       │
+└─────────────────────────────────────────────┘
+```
+
+**Файл:** `src/router/index.ts`
+
+Маршруты с `meta: { requiresAuth: true }` — защищённые:
 
 ```typescript
 {
   path: '/accounts',
-  name: 'accounts',
-  component: () => import('../views/AccountsView.vue'),
-},
-{
-  path: '/accounts/:id',
-  name: 'account-detail',
-  component: () => import('../views/AccountDetailView.vue'),
-},
-```
-
-`:id` — динамический параметр. `/accounts/5` → `id = 5`. Во Vue-компоненте получаем через `useRoute().params.id`.
-
-`() => import(...)` — ленивая загрузка. Компонент загрузится только когда пользователь перейдёт на эту страницу.
-
----
-
-## Полная карта API-эндпоинтов
-
-| Метод | URL | Что делает | Пример тела запроса |
-|-------|-----|-----------|-------------------|
-| `GET` | `/api/accounts` | Все счета с балансами | — |
-| `POST` | `/api/accounts` | Создать счёт | `{"currency":"USD","comment":"Копилка"}` |
-| `GET` | `/api/accounts/1` | Один счёт | — |
-| `DELETE` | `/api/accounts/1` | Удалить счёт + все операции | — |
-| `GET` | `/api/accounts/1/transactions` | История операций | — |
-| `POST` | `/api/accounts/1/transactions` | Новая операция | `{"amount":100,"comment":"Зарплата"}` |
-
----
-
-## Путь запроса от клика до базы данных
-
-Пример: пользователь нажимает "Пополнить" на 500 рублей на счёт id=3.
-
-```
-1. Браузер (Vue)
-   → fetch('/api/accounts/3/transactions', { method: 'POST', body: '{"amount":500,"comment":"Зарплата"}' })
-
-2. Handler (transaction.go)
-   → Парсит URL → account_id = 3
-   → Проверяет: счёт 3 существует? Да
-   → Парсит JSON → amount = 500, comment = "Зарплата"
-
-3. UseCase (transaction.go)
-   → Вызывает repo.Create(transaction)
-
-4. Repository (transaction.go)
-   → INSERT INTO transactions (account_id, amount, comment) VALUES (3, 500, 'Зарплата')
-
-5. PostgreSQL
-   → Сохраняет строку, генерирует id=7, created_at='2026-02-19 12:00:00'
-
-6. Обратный путь:
-   Repository → UseCase → Handler → JSON ответ → Браузер обновляет страницу
+  meta: { requiresAuth: true },   // ← эта метка включает проверку
+  component: () => import('AccountsView.vue'),
+}
 ```
 
 ---
 
-## Что удалили и почему
+## 6. Frontend — редизайн
 
-| Файл | Почему удалили |
-|------|---------------|
-| `entity/balance.go` | Заменён на `account.go` + `transaction.go` |
-| `repository/postgres/balance.go` | Заменён на `account.go` + `transaction.go` |
-| `usecase/balance.go` | Заменён на `account.go` + `transaction.go` |
-| `handler/balance.go` | Заменён на `account.go` + `transaction.go` |
-| `views/CalculatorApiView.vue` | Заменён на `AccountsView.vue` + `AccountDetailView.vue` |
+### Что удалено (дефолтный шаблон Vue)
+
+```
+УДАЛЕНО:
+  src/components/HelloWorld.vue       ← "You did it!"
+  src/components/TheWelcome.vue       ← Приветственный блок
+  src/components/WelcomeItem.vue      ← Элемент приветствия
+  src/components/icons/Icon*.vue      ← 5 иконок Vue
+  src/views/HomeView.vue              ← Главная страница
+  src/views/AboutView.vue             ← Страница "О нас"
+  src/assets/logo.svg                 ← Логотип Vue
+  src/stores/counter.ts               ← Пример Pinia-стора
+  src/layouts/LightLayout.vue         ← Старый лейаут
+```
+
+### Как выглядит приложение теперь
+
+**Страница входа** (`/login`):
+
+```
+┌─────────────────────────────────────────────┐
+│                                             │
+│   (тёмный градиентный фон)                  │
+│                                             │
+│          ┌─────────────────────┐            │
+│          │     FinTrack         │            │
+│          │  Управление финансами│            │
+│          │                     │            │
+│          │  Вход               │            │
+│          │                     │            │
+│          │  Email              │            │
+│          │  ┌─────────────────┐│            │
+│          │  │                 ││            │
+│          │  └─────────────────┘│            │
+│          │  Пароль             │            │
+│          │  ┌─────────────────┐│            │
+│          │  │                 ││            │
+│          │  └─────────────────┘│            │
+│          │                     │            │
+│          │  ┌─────────────────┐│            │
+│          │  │     Войти        ││            │
+│          │  └─────────────────┘│            │
+│          │                     │            │
+│          │  Нет аккаунта?      │            │
+│          │  Зарегистрироваться │            │
+│          └─────────────────────┘            │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+**Главная страница** (`/accounts`, после входа):
+
+```
+┌─────────────────────────────────────────────────┐
+│  FinTrack     Счета                     [Выйти] │ ← тёмно-синий topbar
+├─────────────────────────────────────────────────┤
+│                                                  │
+│  Мои счета                                       │
+│                                                  │
+│  ┌──────────────────────────┐  ┌──────────────┐ │
+│  │ Новый счёт               │  │ Итого        │ │
+│  │ [Валюта][Коммент][Создать]│  │              │ │
+│  └──────────────────────────┘  │ USD  1500.00 │ │
+│                                 │ EUR   800.00 │ │
+│  ┌──────────────────────────┐  │              │ │
+│  │ USD  Основной    1500.00 │  │──────────────│ │
+│  │ EUR  Отпуск       800.00 │  │≈USD  2834.50│ │
+│  │ RUB  Зарплата  50000.00  │  └──────────────┘ │
+│  └──────────────────────────┘                    │
+│                                                  │
+│  ← основная колонка →   ← боковая (итого) →      │
+└─────────────────────────────────────────────────┘
+```
+
+**Было:**
+- Логотип Vue наверху
+- "You did it!" текст
+- Навигация: Home | About | Счета
+- Одна колонка на всю ширину
+- LightLayout с белой шапкой
+
+**Стало:**
+- Тёмно-синий topbar с "FinTrack" и кнопкой "Выйти"
+- Двухколоночная сетка: слева — счета, справа — итого
+- Без топбара на страницах входа/регистрации
+- Карточки с мягкими тенями
+
+### Цветовая схема
+
+| Элемент             | Цвет        | Hex       |
+|---------------------|-------------|-----------|
+| Topbar              | Тёмно-синий | `#0f3460` |
+| Кнопки / ссылки     | Тёмно-синий | `#0f3460` |
+| Доход / баланс +    | Зелёный     | `#22863a` |
+| Расход / баланс -   | Красный     | `#d73a49` |
+| Фон страницы        | Светло-серый| `#f5f6fa` |
+| Карточки            | Белый       | `#ffffff` |
+| Фон авторизации     | Градиент    | `#1a1a2e → #0f3460` |
 
 ---
 
-## Ключевые концепции — шпаргалка
+## 7. Курсы валют
 
-### Clean Architecture (Чистая архитектура)
+| Параметр            | Было       | Стало       |
+|---------------------|------------|-------------|
+| Обновление на сервере | 5 минут   | **1 час**  |
+| Опрос с фронтенда    | 5 секунд  | **60 секунд** |
 
-```
-Entity      → ЧТО это (структуры данных)
-Repository  → ГДЕ хранить (SQL-запросы)
-UseCase     → ЧТО ДЕЛАТЬ (бизнес-правила)
-Handler     → КАК ОБЩАТЬСЯ с внешним миром (HTTP)
-```
+**Файл:** `internal/usecase/rate.go`
 
-Зависимости идут внутрь: Handler → UseCase → Repository → Entity. Никогда наоборот.
-
-### Dependency Injection (Внедрение зависимостей)
-
-Вместо:
 ```go
-// Плохо: повар сам достаёт ключи
-func NewChef() { keys := FindKeys() }
+// Было:
+ticker := time.NewTicker(5 * time.Minute)
+
+// Стало:
+ticker := time.NewTicker(1 * time.Hour)
 ```
 
-Делаем:
-```go
-// Хорошо: директор даёт повару ключи
-func NewChef(keys Keys) { ... }
-```
-
-### COALESCE
-
-```sql
-COALESCE(значение, запасное_значение)
--- Если значение = NULL → вернуть запасное
--- COALESCE(NULL, 0) → 0
--- COALESCE(500, 0)  → 500
-```
-
-### ON DELETE CASCADE
-
-```
-Счёт удалён → все его транзакции удаляются автоматически
-```
-
-Как удаление папки — файлы внутри удалятся вместе с ней.
-
-### Vue `ref` и `computed`
+**Файл:** `src/views/AccountsView.vue`
 
 ```typescript
-const count = ref(0)        // Реактивная переменная. Меняешь → экран обновляется
-const double = computed(() => count.value * 2)  // Вычисляется автоматически из других ref
+// Было:
+setInterval(loadRates, 5000)   // каждые 5 секунд
+
+// Стало:
+setInterval(loadRates, 60000)  // каждые 60 секунд
 ```
 
-### HTTP-методы
+Зачем: бесплатный план exchangerate-api.com имеет лимит на количество запросов. Раз в час — более чем достаточно, курсы не меняются каждые 5 минут.
 
+---
+
+## 8. Примеры запросов (curl)
+
+### 1. Регистрация
+
+```bash
+curl -X POST http://localhost:8080/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ivan@mail.com", "password": "secret123"}'
 ```
-GET    = Дай мне данные        (прочитать)
-POST   = Создай новую штуку    (создать)
-PUT    = Обнови существующую   (изменить)
-DELETE = Удали                 (удалить)
+
+Ответ `201 Created`:
+
+```json
+{
+  "id": 1,
+  "email": "ivan@mail.com",
+  "created_at": "2026-02-19T12:00:00Z"
+}
+```
+
+### 2. Вход
+
+```bash
+curl -X POST http://localhost:8080/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ivan@mail.com", "password": "secret123"}'
+```
+
+Ответ `200 OK`:
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### 3. Сохраняем токен в переменную (для удобства)
+
+```bash
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### 4. Создать счёт (с токеном)
+
+```bash
+curl -X POST http://localhost:8080/api/accounts \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"currency": "USD", "comment": "Основной"}'
+```
+
+Ответ `201 Created`:
+
+```json
+{
+  "id": 1,
+  "user_id": 1,
+  "currency": "USD",
+  "comment": "Основной",
+  "created_at": "2026-02-19T12:05:00Z",
+  "balance": 0
+}
+```
+
+### 5. Список своих счетов
+
+```bash
+curl http://localhost:8080/api/accounts \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Ответ:
+
+```json
+[
+  {"id": 1, "user_id": 1, "currency": "USD", "comment": "Основной", "balance": 0}
+]
+```
+
+### 6. Добавить операцию (пополнение)
+
+```bash
+curl -X POST http://localhost:8080/api/accounts/1/transactions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"amount": 5000, "comment": "Зарплата"}'
+```
+
+Ответ `201 Created`:
+
+```json
+{
+  "id": 1,
+  "account_id": 1,
+  "amount": 5000,
+  "comment": "Зарплата",
+  "created_at": "2026-02-19T12:10:00Z"
+}
+```
+
+### 7. Запрос БЕЗ токена — ошибка
+
+```bash
+curl http://localhost:8080/api/accounts
+```
+
+Ответ `401 Unauthorized`:
+
+```json
+{"error": "Требуется авторизация"}
+```
+
+### 8. Неверный пароль — ошибка
+
+```bash
+curl -X POST http://localhost:8080/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ivan@mail.com", "password": "wrong"}'
+```
+
+Ответ `401 Unauthorized`:
+
+```json
+{"error": "Неверный email или пароль"}
+```
+
+### 9. Повторная регистрация с тем же email — ошибка
+
+```bash
+curl -X POST http://localhost:8080/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ivan@mail.com", "password": "another"}'
+```
+
+Ответ `409 Conflict`:
+
+```json
+{"error": "Пользователь с таким email уже существует"}
 ```
 
 ---
 
-## Краткая сводка (для конспекта)
+## 9. Карта файлов
 
-1. **Вместо одной таблицы `balances`** сделали две: `accounts` (счета) и `transactions` (операции)
-2. **Баланс не хранится** в базе — вычисляется как `SUM(транзакций)` через SQL-подзапрос
-3. **Каскадное удаление** — удалил счёт → транзакции удалились сами (`ON DELETE CASCADE`)
-4. **4 слоя** кода: Entity → Repository → UseCase → Handler (снизу вверх)
-5. **Dependency Injection** — каждый слой получает зависимости через конструктор в `main.go`
-6. **Интерфейсы** в UseCase позволяют подменять реализацию (для тестов или другой БД)
-7. **API**: 6 эндпоинтов — CRUD для счетов + создание/чтение транзакций
-8. **Фронтенд**: 2 страницы — список счетов (`AccountsView`) и детали счёта (`AccountDetailView`)
-9. **Роутер Vue**: `/accounts` → список, `/accounts/:id` → детали
-10. **`fetch`** в Vue для общения с Go-бэкендом через JSON
+### Новые файлы
+
+```
+BACKEND:
+  db/migrations/000005_create_users_table.up.sql       ← таблица users
+  db/migrations/000005_create_users_table.down.sql
+  db/migrations/000006_add_user_id_to_accounts.up.sql  ← колонка user_id
+  db/migrations/000006_add_user_id_to_accounts.down.sql
+
+  internal/entity/user.go                    ← модель User
+  internal/repository/postgres/user.go       ← Create, GetByEmail
+  internal/usecase/auth.go                   ← Register (bcrypt), Login (JWT)
+  internal/handler/auth.go                   ← POST /register, POST /login
+  internal/handler/middleware.go             ← AuthMiddleware
+
+FRONTEND:
+  src/stores/auth.ts                         ← Pinia-стор (token, login, logout)
+  src/api.ts                                 ← apiFetch() с Authorization header
+  src/views/LoginView.vue                    ← Страница входа
+  src/views/RegisterView.vue                 ← Страница регистрации
+```
+
+### Изменённые файлы
+
+```
+BACKEND:
+  go.mod                                     ← добавлены jwt/v5, x/crypto
+  cmd/app/main.go                            ← +userRepo, +authUC, +authHandler,
+                                                маршруты обёрнуты в AuthMiddleware
+  internal/entity/account.go                 ← +UserID поле
+  internal/repository/postgres/account.go    ← все запросы фильтруют по user_id
+  internal/usecase/account.go                ← все методы принимают userID
+  internal/handler/account.go                ← берёт user_id из context
+  internal/handler/transaction.go            ← проверяет принадлежность счёта
+  internal/usecase/rate.go                   ← 5 min → 1 hour
+
+FRONTEND:
+  src/App.vue                                ← topbar FinTrack + logout
+                                                (вместо логотипа Vue + HelloWorld)
+  src/router/index.ts                        ← auth-маршруты + beforeEach guard
+  src/views/AccountsView.vue                 ← 2-колоночная сетка, apiFetch
+  src/views/AccountDetailView.vue            ← новый дизайн карточек, apiFetch
+  src/assets/base.css                        ← убрана Vue-тема, минимальный reset
+  src/assets/main.css                        ← упрощён
+```
+
+### Удалённые файлы
+
+```
+  src/components/HelloWorld.vue              ← "You did it!"
+  src/components/TheWelcome.vue              ← Приветственный блок
+  src/components/WelcomeItem.vue             ← Элемент приветствия
+  src/components/icons/IconCommunity.vue     ← Иконки Vue
+  src/components/icons/IconDocumentation.vue
+  src/components/icons/IconEcosystem.vue
+  src/components/icons/IconSupport.vue
+  src/components/icons/IconTooling.vue
+  src/views/HomeView.vue                     ← Главная страница (не нужна)
+  src/views/AboutView.vue                    ← "О нас" (не нужна)
+  src/assets/logo.svg                        ← Логотип Vue
+  src/stores/counter.ts                      ← Пример стора (не используется)
+  src/layouts/LightLayout.vue                ← Старый лейаут
+```
+
+---
+
+## Как запустить и проверить
+
+```bash
+# 1. БД (если не запущена)
+make db-up
+
+# 2. Backend (миграции применятся автоматически)
+make run
+
+# 3. Frontend (в другом терминале)
+npm run dev
+
+# 4. Открыть http://localhost:5173
+#    → Покажет страницу входа
+#    → Перейти на "Зарегистрироваться"
+#    → Ввести email + пароль → автоматический вход
+#    → Создать счёт → Добавить операции
+#    → Кнопка "Выйти" в правом верхнем углу
+```
+
+---
+
+## Краткая сводка (10 пунктов)
+
+1. **Таблица `users`** — email + bcrypt-хеш пароля
+2. **Колонка `user_id` в `accounts`** — привязка счёта к владельцу
+3. **Регистрация** (`POST /api/register`) — хешируем пароль, сохраняем
+4. **Вход** (`POST /api/login`) — проверяем хеш, выдаём JWT на 72 часа
+5. **JWT Middleware** — проверяет токен, кладёт `user_id` в context
+6. **Все запросы к счетам** — фильтруются по `user_id` из токена
+7. **Фронтенд** — токен в localStorage, `apiFetch()` добавляет заголовок
+8. **Router guard** — без токена → редирект на `/login`
+9. **Новый UI** — topbar "FinTrack", карточки, двухколоночная сетка
+10. **Курсы** — обновляются раз в час (было 5 минут)
