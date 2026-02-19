@@ -1,4 +1,4 @@
-<script setup lang="ts">
+]<script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from '@/api'
@@ -16,7 +16,14 @@ type Transaction = {
   account_id: number
   amount: number
   comment: string
+  category_id: number | null
+  category: string
   created_at: string
+}
+
+type Category = {
+  id: number
+  name: string
 }
 
 const route = useRoute()
@@ -27,8 +34,11 @@ const transactions = ref<Transaction[]>([])
 const txAmount = ref('')
 const txComment = ref('')
 const txDate = ref('')
+const selectedCategoryId = ref<number | null>(null)
+const categories = ref<Category[]>([])
 const error = ref('')
 const deletingTxId = ref<number | null>(null)
+const editingTx = ref<Transaction | null>(null)
 
 const accountId = Number(route.params.id)
 
@@ -48,9 +58,20 @@ function loadTransactions() {
     .then((data) => (transactions.value = data))
 }
 
+function loadCategories() {
+  apiFetch('/api/categories')
+    .then((response) => response.json())
+    .then((data) => (categories.value = data))
+}
+
+function toggleCategory(id: number) {
+  selectedCategoryId.value = selectedCategoryId.value === id ? null : id
+}
+
 onMounted(() => {
   loadAccount()
   loadTransactions()
+  loadCategories()
 })
 
 async function deposit() {
@@ -73,6 +94,9 @@ async function createTransaction(amount: number) {
   if (txDate.value) {
     body.created_at = new Date(txDate.value).toISOString()
   }
+  if (selectedCategoryId.value !== null) {
+    body.category_id = selectedCategoryId.value
+  }
   const response = await apiFetch(`/api/accounts/${accountId}/transactions`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -82,6 +106,63 @@ async function createTransaction(amount: number) {
     txAmount.value = ''
     txComment.value = ''
     txDate.value = ''
+    selectedCategoryId.value = null
+    loadAccount()
+    loadTransactions()
+  }
+}
+
+function startEdit(tx: Transaction) {
+  editingTx.value = tx
+  txAmount.value = Math.abs(tx.amount).toString()
+  txComment.value = tx.comment
+  selectedCategoryId.value = tx.category_id
+  if (tx.created_at) {
+    const d = new Date(tx.created_at.replace(' ', 'T'))
+    if (!isNaN(d.getTime())) {
+      const pad = (n: number) => n.toString().padStart(2, '0')
+      txDate.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+  }
+}
+
+function cancelEdit() {
+  editingTx.value = null
+  txAmount.value = ''
+  txComment.value = ''
+  txDate.value = ''
+  selectedCategoryId.value = null
+}
+
+async function saveEdit() {
+  if (!editingTx.value) return
+  const amount = parseFloat(txAmount.value)
+  if (!amount || amount <= 0) return
+
+  const sign = editingTx.value.amount < 0 ? -1 : 1
+  const body: Record<string, unknown> = {
+    amount: amount * sign,
+    comment: txComment.value.trim(),
+  }
+  if (txDate.value) {
+    body.created_at = new Date(txDate.value).toISOString()
+  } else {
+    body.created_at = editingTx.value.created_at
+  }
+  if (selectedCategoryId.value !== null) {
+    body.category_id = selectedCategoryId.value
+  }
+
+  const response = await apiFetch(
+    `/api/accounts/${accountId}/transactions/${editingTx.value.id}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    },
+  )
+
+  if (response.ok) {
+    cancelEdit()
     loadAccount()
     loadTransactions()
   }
@@ -140,8 +221,19 @@ function goBack() {
 
       <!-- Форма операции -->
       <div class="card">
-        <h2 class="card-title">Новая операция</h2>
+        <h2 class="card-title">{{ editingTx ? 'Редактирование операции' : 'Новая операция' }}</h2>
         <div class="tx-form">
+          <div v-if="categories.length > 0" class="category-buttons">
+            <button
+              v-for="cat in categories"
+              :key="cat.id"
+              class="category-btn"
+              :class="{ active: selectedCategoryId === cat.id }"
+              @click="toggleCategory(cat.id)"
+            >
+              {{ cat.name }}
+            </button>
+          </div>
           <div class="tx-row">
             <input
               v-model="txAmount"
@@ -164,7 +256,11 @@ function goBack() {
               class="input-field input-grow"
               title="Дата операции (необязательно)"
             />
-            <div class="tx-buttons">
+            <div class="tx-buttons" v-if="editingTx">
+              <button @click="saveEdit" class="btn btn-warning">Сохранить</button>
+              <button @click="cancelEdit" class="btn btn-outline">Отмена</button>
+            </div>
+            <div class="tx-buttons" v-else>
               <button @click="deposit" class="btn btn-success">Пополнить</button>
               <button @click="withdraw" class="btn btn-danger">Списать</button>
             </div>
@@ -191,10 +287,12 @@ function goBack() {
               <span class="tx-amount">
                 {{ tx.amount > 0 ? '+' : '' }}{{ tx.amount.toFixed(2) }}
               </span>
+              <span class="tx-category" v-if="tx.category">{{ tx.category }}</span>
               <span class="tx-comment" v-if="tx.comment">{{ tx.comment }}</span>
             </div>
             <div class="tx-right">
               <span class="tx-date">{{ formatDate(tx.created_at) }}</span>
+              <button class="btn-edit" @click="startEdit(tx)" title="Редактировать">&#9998;</button>
               <button class="btn-delete" @click="confirmDelete(tx.id)">&times;</button>
             </div>
           </div>
@@ -421,6 +519,16 @@ function goBack() {
   color: #d73a49;
 }
 
+.tx-category {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #0f3460;
+  background: #e8eef6;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  width: fit-content;
+}
+
 .tx-comment {
   font-size: 0.8rem;
   color: #888;
@@ -436,6 +544,37 @@ function goBack() {
   font-size: 0.75rem;
   color: #aaa;
   white-space: nowrap;
+}
+
+.btn-warning {
+  background: #d97706;
+  color: #fff;
+}
+
+.btn-warning:hover {
+  background: #b45309;
+}
+
+.btn-edit {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  color: #999;
+  font-size: 0.9rem;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-edit:hover {
+  background: #d97706;
+  border-color: #d97706;
+  color: #fff;
 }
 
 .btn-delete {
@@ -501,5 +640,34 @@ function goBack() {
 .btn-outline:hover {
   border-color: #bbb;
   background: #f9f9f9;
+}
+
+.category-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.category-btn {
+  padding: 0.4rem 0.8rem;
+  border: 1.5px solid #d0d7de;
+  border-radius: 20px;
+  background: #f0f4f8;
+  color: #333;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.category-btn:hover {
+  border-color: #0f3460;
+  color: #0f3460;
+}
+
+.category-btn.active {
+  background: #0f3460;
+  border-color: #0f3460;
+  color: #fff;
 }
 </style>

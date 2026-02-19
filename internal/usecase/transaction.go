@@ -8,6 +8,7 @@ type TransactionRepository interface {
 	GetByAccountID(accountID int) ([]entity.Transaction, error)
 	Create(transaction entity.Transaction) (entity.Transaction, error)
 	Delete(id, accountID int) error
+	Update(id, accountID int, transaction entity.Transaction) (entity.Transaction, error)
 }
 
 // TransactionUseCase — бизнес-логика для работы с транзакциями (операциями по счетам).
@@ -33,4 +34,9 @@ func (uc *TransactionUseCase) Create(transaction entity.Transaction) (entity.Tra
 // Delete — удалить транзакцию по ID.
 func (uc *TransactionUseCase) Delete(id, accountID int) error {
 	return uc.repo.Delete(id, accountID)
+}
+
+// Update — обновить транзакцию по ID.
+func (uc *TransactionUseCase) Update(id, accountID int, transaction entity.Transaction) (entity.Transaction, error) {
+	return uc.repo.Update(id, accountID, transaction)
 }

@@ -55,14 +55,21 @@ func (h *TransactionHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DELETE /api/accounts/{id}/transactions/{txId}
-	if r.Method == http.MethodDelete && len(parts) == 3 {
+	// DELETE or PUT /api/accounts/{id}/transactions/{txId}
+	if len(parts) == 3 {
 		txID, err := strconv.Atoi(parts[2])
 		if err != nil {
 			http.Error(w, `{"error": "Неверный ID операции"}`, http.StatusBadRequest)
 			return
 		}
-		h.delete(w, txID, accountID)
+		switch r.Method {
+		case http.MethodDelete:
+			h.delete(w, txID, accountID)
+		case http.MethodPut:
+			h.update(w, r, txID, accountID)
+		default:
+			http.Error(w, `{"error": "Метод не поддерживается"}`, http.StatusMethodNotAllowed)
+		}
 		return
 	}
 
@@ -94,6 +101,23 @@ func (h *TransactionHandler) delete(w http.ResponseWriter, txID, accountID int) 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// update — обновить транзакцию по ID.
+func (h *TransactionHandler) update(w http.ResponseWriter, r *http.Request, txID, accountID int) {
+	var transaction entity.Transaction
+	if err := json.NewDecoder(r.Body).Decode(&transaction); err != nil {
+		http.Error(w, `{"error": "Неверный формат JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	updated, err := h.txUC.Update(txID, accountID, transaction)
+	if err != nil {
+		http.Error(w, `{"error": "Операция не найдена"}`, http.StatusNotFound)
+		return
+	}
+
+	json.NewEncoder(w).Encode(updated)
 }
 
 // create — создать новую транзакцию по счёту.

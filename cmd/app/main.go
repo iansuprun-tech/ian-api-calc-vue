@@ -89,12 +89,14 @@ func main() {
 	// 1. Создаём репозитории (слой данных)
 	accountRepo := postgres.NewAccountRepo(db)
 	transactionRepo := postgres.NewTransactionRepo(db)
+	categoryRepo := postgres.NewCategoryRepo(db)
 	rateRepo := postgres.NewRateRepo(db)
 	userRepo := postgres.NewUserRepo(db)
 
 	// 2. Создаём юзкейсы (бизнес-логика), передавая им репозитории
 	accountUC := usecase.NewAccountUseCase(accountRepo)
 	transactionUC := usecase.NewTransactionUseCase(transactionRepo)
+	categoryUC := usecase.NewCategoryUseCase(categoryRepo)
 	fetcher := &rateFetcher{apiKey: os.Getenv("EXCHANGE_RATE_API_KEY")}
 	rateUC := usecase.NewRateUseCase(rateRepo, fetcher)
 	authUC := usecase.NewAuthUseCase(userRepo)
@@ -102,6 +104,7 @@ func main() {
 	// 3. Создаём хендлеры (HTTP-слой), передавая им юзкейсы
 	accountHandler := handler.NewAccountHandler(accountUC)
 	transactionHandler := handler.NewTransactionHandler(transactionUC, accountUC)
+	categoryHandler := handler.NewCategoryHandler(categoryUC)
 	rateHandler := handler.NewRateHandler(rateUC)
 	authHandler := handler.NewAuthHandler(authUC)
 
@@ -114,6 +117,8 @@ func main() {
 	http.HandleFunc("/api/rates", rateHandler.Handle)
 
 	// Защищённые маршруты (требуют JWT)
+	http.HandleFunc("/api/categories", handler.AuthMiddleware(categoryHandler.Handle))
+	http.HandleFunc("/api/categories/", handler.AuthMiddleware(categoryHandler.Handle))
 	http.HandleFunc("/api/accounts", handler.AuthMiddleware(accountHandler.HandleList))
 	http.HandleFunc("/api/accounts/", handler.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -135,6 +140,9 @@ func main() {
 	fmt.Println("  DELETE /api/accounts/{id}               - удалить счёт")
 	fmt.Println("  GET    /api/accounts/{id}/transactions  - история операций")
 	fmt.Println("  POST   /api/accounts/{id}/transactions  - добавить операцию")
+	fmt.Println("  GET    /api/categories                   - список категорий")
+	fmt.Println("  POST   /api/categories                   - создать категорию")
+	fmt.Println("  DELETE /api/categories/{id}               - удалить категорию")
 	fmt.Println("  GET    /api/rates                       - список курсов валют")
 
 	log.Fatal(http.ListenAndServe(":8080", nil))

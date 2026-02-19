@@ -18,6 +18,7 @@ function logout() {
         <h1 class="topbar-logo">FinTrack</h1>
         <nav class="topbar-nav">
           <RouterLink to="/accounts" class="nav-link">Счета</RouterLink>
+          <RouterLink to="/categories" class="nav-link">Категории</RouterLink>
         </nav>
       </div>
       <button @click="logout" class="logout-btn">Выйти</button>
