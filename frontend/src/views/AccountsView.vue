@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiFetch } from '@/api'
+import { formatAmount } from '@/format'
 
 type Account = {
   id: number
@@ -164,7 +165,7 @@ function goToAccount(account: Account) {
               </div>
               <div class="account-right">
                 <span class="account-balance" :class="{ negative: account.balance < 0 }">
-                  {{ account.balance.toFixed(2) }}
+                  {{ formatAmount(account.balance) }}
                 </span>
                 <button
                   @click.stop="removeAccount(account)"
@@ -191,7 +192,7 @@ function goToAccount(account: Account) {
             >
               <span class="summary-currency">{{ currency }}</span>
               <span class="summary-value" :class="{ negative: amount < 0 }">
-                {{ amount.toFixed(2) }}
+                {{ formatAmount(amount) }}
               </span>
             </div>
           </div>
@@ -202,7 +203,7 @@ function goToAccount(account: Account) {
             class="total-usd"
           >
             <span>Всего &approx; {{ item.currency }}</span>
-            <span class="total-usd-value">{{ item.amount.toFixed(2) }}</span>
+            <span class="total-usd-value">{{ formatAmount(item.amount) }}</span>
           </div>
         </div>
       </div>

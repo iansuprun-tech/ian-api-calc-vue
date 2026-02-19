@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from '@/api'
+import { formatAmount } from '@/format'
 
 type Account = {
   id: number
@@ -214,7 +215,7 @@ function goBack() {
             <p class="account-comment" v-if="account.comment">{{ account.comment }}</p>
           </div>
           <div class="balance-badge" :class="{ negative: account.balance < 0 }">
-            {{ account.balance.toFixed(2) }} {{ account.currency }}
+            {{ formatAmount(account.balance) }} {{ account.currency }}
           </div>
         </div>
       </div>
@@ -285,7 +286,7 @@ function goBack() {
           >
             <div class="tx-left">
               <span class="tx-amount">
-                {{ tx.amount > 0 ? '+' : '' }}{{ tx.amount.toFixed(2) }}
+                {{ tx.amount > 0 ? '+' : '' }}{{ formatAmount(tx.amount) }}
               </span>
               <span class="tx-category" v-if="tx.category">{{ tx.category }}</span>
               <span class="tx-comment" v-if="tx.comment">{{ tx.comment }}</span>
