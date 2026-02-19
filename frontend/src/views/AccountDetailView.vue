@@ -26,7 +26,9 @@ const account = ref<Account | null>(null)
 const transactions = ref<Transaction[]>([])
 const txAmount = ref('')
 const txComment = ref('')
+const txDate = ref('')
 const error = ref('')
+const deletingTxId = ref<number | null>(null)
 
 const accountId = Number(route.params.id)
 
@@ -64,24 +66,50 @@ async function withdraw() {
 }
 
 async function createTransaction(amount: number) {
+  const body: Record<string, unknown> = {
+    amount: amount,
+    comment: txComment.value.trim(),
+  }
+  if (txDate.value) {
+    body.created_at = new Date(txDate.value).toISOString()
+  }
   const response = await apiFetch(`/api/accounts/${accountId}/transactions`, {
     method: 'POST',
-    body: JSON.stringify({
-      amount: amount,
-      comment: txComment.value.trim(),
-    }),
+    body: JSON.stringify(body),
   })
 
   if (response.ok) {
     txAmount.value = ''
     txComment.value = ''
+    txDate.value = ''
+    loadAccount()
+    loadTransactions()
+  }
+}
+
+function confirmDelete(txId: number) {
+  deletingTxId.value = txId
+}
+
+function cancelDelete() {
+  deletingTxId.value = null
+}
+
+async function deleteTransaction() {
+  if (deletingTxId.value === null) return
+  const response = await apiFetch(`/api/accounts/${accountId}/transactions/${deletingTxId.value}`, {
+    method: 'DELETE',
+  })
+  deletingTxId.value = null
+  if (response.ok) {
     loadAccount()
     loadTransactions()
   }
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
+  const date = new Date(dateStr.replace(' ', 'T'))
+  if (isNaN(date.getTime())) return dateStr
   return date.toLocaleString('ru-RU')
 }
 
@@ -114,22 +142,32 @@ function goBack() {
       <div class="card">
         <h2 class="card-title">Новая операция</h2>
         <div class="tx-form">
-          <input
-            v-model="txAmount"
-            placeholder="Сумма"
-            type="number"
-            step="0.01"
-            min="0.01"
-            class="input-field"
-          />
-          <input
-            v-model="txComment"
-            placeholder="Комментарий"
-            class="input-field input-grow"
-          />
-          <div class="tx-buttons">
-            <button @click="deposit" class="btn btn-success">Пополнить</button>
-            <button @click="withdraw" class="btn btn-danger">Списать</button>
+          <div class="tx-row">
+            <input
+              v-model="txAmount"
+              placeholder="Сумма"
+              type="number"
+              step="0.01"
+              min="0.01"
+              class="input-field"
+            />
+            <input
+              v-model="txComment"
+              placeholder="Комментарий"
+              class="input-field input-grow"
+            />
+          </div>
+          <div class="tx-row">
+            <input
+              v-model="txDate"
+              type="datetime-local"
+              class="input-field input-grow"
+              title="Дата операции (необязательно)"
+            />
+            <div class="tx-buttons">
+              <button @click="deposit" class="btn btn-success">Пополнить</button>
+              <button @click="withdraw" class="btn btn-danger">Списать</button>
+            </div>
           </div>
         </div>
       </div>
@@ -155,11 +193,27 @@ function goBack() {
               </span>
               <span class="tx-comment" v-if="tx.comment">{{ tx.comment }}</span>
             </div>
-            <span class="tx-date">{{ formatDate(tx.created_at) }}</span>
+            <div class="tx-right">
+              <span class="tx-date">{{ formatDate(tx.created_at) }}</span>
+              <button class="btn-delete" @click="confirmDelete(tx.id)">&times;</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Модалка подтверждения удаления -->
+    <Teleport to="body">
+      <div v-if="deletingTxId !== null" class="modal-overlay" @click.self="cancelDelete">
+        <div class="modal-card">
+          <p class="modal-text">Удалить операцию?</p>
+          <div class="modal-buttons">
+            <button class="btn btn-outline" @click="cancelDelete">Отмена</button>
+            <button class="btn btn-danger" @click="deleteTransaction">Удалить</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -252,8 +306,13 @@ function goBack() {
 
 .tx-form {
   display: flex;
+  flex-direction: column;
   gap: 0.75rem;
-  flex-wrap: wrap;
+}
+
+.tx-row {
+  display: flex;
+  gap: 0.75rem;
 }
 
 .input-field {
@@ -367,9 +426,80 @@ function goBack() {
   color: #888;
 }
 
+.tx-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .tx-date {
   font-size: 0.75rem;
   color: #aaa;
   white-space: nowrap;
+}
+
+.btn-delete {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  color: #999;
+  font-size: 1.1rem;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-delete:hover {
+  background: #d73a49;
+  border-color: #d73a49;
+  color: #fff;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  min-width: 280px;
+  text-align: center;
+}
+
+.modal-text {
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 1.25rem;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.btn-outline {
+  background: #fff;
+  color: #333;
+  border: 1.5px solid #ddd;
+}
+
+.btn-outline:hover {
+  border-color: #bbb;
+  background: #f9f9f9;
 }
 </style>

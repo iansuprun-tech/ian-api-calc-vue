@@ -7,6 +7,7 @@ import "vue-calc/internal/entity"
 type TransactionRepository interface {
 	GetByAccountID(accountID int) ([]entity.Transaction, error)
 	Create(transaction entity.Transaction) (entity.Transaction, error)
+	Delete(id, accountID int) error
 }
 
 // TransactionUseCase — бизнес-логика для работы с транзакциями (операциями по счетам).
@@ -27,4 +28,9 @@ func (uc *TransactionUseCase) GetByAccountID(accountID int) ([]entity.Transactio
 // Create — создать новую транзакцию (пополнение или списание).
 func (uc *TransactionUseCase) Create(transaction entity.Transaction) (entity.Transaction, error) {
 	return uc.repo.Create(transaction)
+}
+
+// Delete — удалить транзакцию по ID.
+func (uc *TransactionUseCase) Delete(id, accountID int) error {
+	return uc.repo.Delete(id, accountID)
 }

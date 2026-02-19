@@ -30,9 +30,9 @@ func (h *TransactionHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Извлекаем account_id из URL: /api/accounts/123/transactions → "123"
+	// Извлекаем account_id из URL: /api/accounts/123/transactions[/456]
 	path := strings.TrimPrefix(r.URL.Path, "/api/accounts/")
-	parts := strings.SplitN(path, "/", 2)
+	parts := strings.SplitN(path, "/", 3)
 	if len(parts) < 2 || parts[1] != "transactions" {
 		http.Error(w, `{"error": "Неверный URL"}`, http.StatusBadRequest)
 		return
@@ -55,6 +55,17 @@ func (h *TransactionHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// DELETE /api/accounts/{id}/transactions/{txId}
+	if r.Method == http.MethodDelete && len(parts) == 3 {
+		txID, err := strconv.Atoi(parts[2])
+		if err != nil {
+			http.Error(w, `{"error": "Неверный ID операции"}`, http.StatusBadRequest)
+			return
+		}
+		h.delete(w, txID, accountID)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		h.getByAccountID(w, accountID)
@@ -73,6 +84,16 @@ func (h *TransactionHandler) getByAccountID(w http.ResponseWriter, accountID int
 		return
 	}
 	json.NewEncoder(w).Encode(transactions)
+}
+
+// delete — удалить транзакцию по ID.
+func (h *TransactionHandler) delete(w http.ResponseWriter, txID, accountID int) {
+	err := h.txUC.Delete(txID, accountID)
+	if err != nil {
+		http.Error(w, `{"error": "Операция не найдена"}`, http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // create — создать новую транзакцию по счёту.
