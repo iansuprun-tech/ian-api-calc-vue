@@ -8,8 +8,7 @@ import { RouterLink } from "vue-router"
     <nav class="light-nav">
       <RouterLink to="/" class="nav-link">Home</RouterLink>
       <RouterLink to="/about" class="nav-link">About</RouterLink>
-      <RouterLink to="/calc" class="nav-link">Calculator</RouterLink>
-      <RouterLink to="/calc-api" class="nav-link" >Calculator</RouterLink>
+      <RouterLink to="/accounts" class="nav-link">Счета</RouterLink>
     </nav>
   </header>
 

@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -87,35 +88,48 @@ func main() {
 
 	// --- Сборка зависимостей (Dependency Injection) ---
 	// 1. Создаём репозитории (слой данных)
-	balanceRepo := postgres.NewBalanceRepo(db)
+	accountRepo := postgres.NewAccountRepo(db)
+	transactionRepo := postgres.NewTransactionRepo(db)
 	rateRepo := postgres.NewRateRepo(db)
 
 	// 2. Создаём юзкейсы (бизнес-логика), передавая им репозитории
-	balanceUC := usecase.NewBalanceUseCase(balanceRepo)
+	accountUC := usecase.NewAccountUseCase(accountRepo)
+	transactionUC := usecase.NewTransactionUseCase(transactionRepo)
 	fetcher := &rateFetcher{apiKey: os.Getenv("EXCHANGE_RATE_API_KEY")}
 	rateUC := usecase.NewRateUseCase(rateRepo, fetcher)
 
 	// 3. Создаём хендлеры (HTTP-слой), передавая им юзкейсы
-	balanceHandler := handler.NewBalanceHandler(balanceUC)
+	accountHandler := handler.NewAccountHandler(accountUC)
+	transactionHandler := handler.NewTransactionHandler(transactionUC, accountUC)
 	rateHandler := handler.NewRateHandler(rateUC)
 
 	// Запускаем фоновое обновление курсов валют
 	rateUC.StartUpdater()
 
-	// Настройка маршрутов — эндпоинты идентичны старым, фронтенд не сломается
-	http.HandleFunc("/api/balances", balanceHandler.HandleList)
-	http.HandleFunc("/api/balances/", balanceHandler.HandleByID)
+	// Настройка маршрутов
+	http.HandleFunc("/api/accounts", accountHandler.HandleList) // GET — список, POST — создать
+	http.HandleFunc("/api/accounts/", func(w http.ResponseWriter, r *http.Request) {
+		// Роутинг: /api/accounts/{id}/transactions → transactionHandler
+		//          /api/accounts/{id}               → accountHandler
+		path := r.URL.Path
+		if len(path) > len("/api/accounts/") && strings.Contains(path, "/transactions") {
+			transactionHandler.Handle(w, r)
+		} else {
+			accountHandler.HandleByID(w, r)
+		}
+	})
 	http.HandleFunc("/api/rates", rateHandler.Handle)
 
 	// Запуск сервера
 	fmt.Println("Сервер запущен на http://localhost:8080")
 	fmt.Println("Endpoints:")
-	fmt.Println("  GET    /api/balances     - список всех балансов")
-	fmt.Println("  POST   /api/balances     - создать баланс")
-	fmt.Println("  GET    /api/balances/{id} - получить баланс")
-	fmt.Println("  PUT    /api/balances/{id} - обновить баланс")
-	fmt.Println("  DELETE /api/balances/{id} - удалить баланс")
-	fmt.Println("  GET    /api/rates         - список курсов валют")
+	fmt.Println("  GET    /api/accounts                  - список всех счетов")
+	fmt.Println("  POST   /api/accounts                  - создать счёт")
+	fmt.Println("  GET    /api/accounts/{id}              - получить счёт")
+	fmt.Println("  DELETE /api/accounts/{id}              - удалить счёт")
+	fmt.Println("  GET    /api/accounts/{id}/transactions - история операций")
+	fmt.Println("  POST   /api/accounts/{id}/transactions - добавить операцию")
+	fmt.Println("  GET    /api/rates                      - список курсов валют")
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
