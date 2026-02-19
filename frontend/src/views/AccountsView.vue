@@ -61,6 +61,18 @@ const totalUSD = computed((): number => {
   return total
 })
 
+const totalInAllCurrencies = computed(() => {
+  const usdTotal = totalUSD.value
+  const result: { currency: string; amount: number }[] = []
+  for (const currency of Object.keys(currencyTotals.value)) {
+    const rate = getRateForCurrency(currency)
+    if (rate) {
+      result.push({ currency, amount: usdTotal / rate })
+    }
+  }
+  return result
+})
+
 let rateInterval: ReturnType<typeof setInterval>
 
 onMounted(() => {
@@ -184,9 +196,13 @@ function goToAccount(account: Account) {
             </div>
           </div>
 
-          <div v-if="totalUSD !== 0" class="total-usd">
-            <span>Всего &approx; USD</span>
-            <span class="total-usd-value">{{ totalUSD.toFixed(2) }}</span>
+          <div
+            v-for="item in totalInAllCurrencies"
+            :key="item.currency"
+            class="total-usd"
+          >
+            <span>Всего &approx; {{ item.currency }}</span>
+            <span class="total-usd-value">{{ item.amount.toFixed(2) }}</span>
           </div>
         </div>
       </div>
@@ -420,13 +436,17 @@ function goToAccount(account: Account) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
   padding: 0.75rem 0.8rem;
   background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
   border-radius: 8px;
   color: #fff;
   font-weight: 600;
   font-size: 0.9rem;
+}
+
+.total-usd:first-of-type {
+  margin-top: 0.75rem;
 }
 
 .total-usd-value {

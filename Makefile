@@ -53,3 +53,32 @@ migrate-force:
 .PHONY: run
 run:
 	go run ./cmd/app/
+
+.PHONY: run-front
+run-front:
+	cd frontend && npm run dev
+
+# Установить зависимости фронтенда
+.PHONY: fe-install
+fe-install:
+	cd frontend && npm install
+
+# Запустить dev-сервер фронтенда
+.PHONY: fe-dev
+fe-dev:
+	cd frontend && npm run dev
+
+# Собрать фронтенд для продакшена
+.PHONY: fe-build
+fe-build:
+	cd frontend && npm run build
+
+# Линтинг фронтенда
+.PHONY: fe-lint
+fe-lint:
+	cd frontend && npm run lint
+
+# Форматирование фронтенда
+.PHONY: fe-format
+fe-format:
+	cd frontend && npm run format
