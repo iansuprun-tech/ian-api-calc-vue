@@ -21,7 +21,7 @@ func (r *TransactionRepo) GetByAccountID(accountID int) ([]entity.Transaction, e
 		SELECT t.id, t.account_id, t.amount, t.comment, t.category_id, COALESCE(c.name, ''), t.created_at
 		FROM transactions t
 		LEFT JOIN categories c ON t.category_id = c.id
-		WHERE t.account_id = $1
+		WHERE t.account_id = $1 AND t.deleted_at IS NULL
 		ORDER BY t.created_at DESC`,
 		accountID,
 	)
@@ -41,10 +41,10 @@ func (r *TransactionRepo) GetByAccountID(accountID int) ([]entity.Transaction, e
 	return transactions, nil
 }
 
-// Delete — удалить транзакцию по ID и account_id.
+// Delete — мягко удалить транзакцию по ID и account_id.
 func (r *TransactionRepo) Delete(id, accountID int) error {
 	res, err := r.db.Exec(
-		"DELETE FROM transactions WHERE id = $1 AND account_id = $2",
+		"UPDATE transactions SET deleted_at = NOW() WHERE id = $1 AND account_id = $2 AND deleted_at IS NULL",
 		id, accountID,
 	)
 	if err != nil {
@@ -64,7 +64,7 @@ func (r *TransactionRepo) Delete(id, accountID int) error {
 func (r *TransactionRepo) Update(id, accountID int, transaction entity.Transaction) (entity.Transaction, error) {
 	err := r.db.QueryRow(`
 		UPDATE transactions SET amount=$1, comment=$2, category_id=$3, created_at=$4
-		WHERE id=$5 AND account_id=$6
+		WHERE id=$5 AND account_id=$6 AND deleted_at IS NULL
 		RETURNING id, account_id, amount, comment, category_id, created_at`,
 		transaction.Amount, transaction.Comment, transaction.CategoryID, transaction.CreatedAt,
 		id, accountID,
@@ -75,7 +75,7 @@ func (r *TransactionRepo) Update(id, accountID int, transaction entity.Transacti
 
 	// Fetch category name
 	if transaction.CategoryID != nil {
-		_ = r.db.QueryRow("SELECT name FROM categories WHERE id = $1", *transaction.CategoryID).Scan(&transaction.Category)
+		_ = r.db.QueryRow("SELECT name FROM categories WHERE id = $1 AND deleted_at IS NULL", *transaction.CategoryID).Scan(&transaction.Category)
 	}
 
 	return transaction, nil

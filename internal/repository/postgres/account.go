@@ -20,9 +20,9 @@ func NewAccountRepo(db *sql.DB) *AccountRepo {
 func (r *AccountRepo) GetAll(userID int) ([]entity.Account, error) {
 	rows, err := r.db.Query(`
 		SELECT a.id, a.user_id, a.currency, a.comment, a.created_at,
-		       COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id), 0) AS balance
+		       COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id AND t.deleted_at IS NULL), 0) AS balance
 		FROM accounts a
-		WHERE a.user_id = $1
+		WHERE a.user_id = $1 AND a.deleted_at IS NULL
 		ORDER BY a.id
 	`, userID)
 	if err != nil {
@@ -46,9 +46,9 @@ func (r *AccountRepo) GetByID(id, userID int) (entity.Account, error) {
 	var a entity.Account
 	err := r.db.QueryRow(`
 		SELECT a.id, a.user_id, a.currency, a.comment, a.created_at,
-		       COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id), 0) AS balance
+		       COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id AND t.deleted_at IS NULL), 0) AS balance
 		FROM accounts a
-		WHERE a.id = $1 AND a.user_id = $2
+		WHERE a.id = $1 AND a.user_id = $2 AND a.deleted_at IS NULL
 	`, id, userID).Scan(&a.ID, &a.UserID, &a.Currency, &a.Comment, &a.CreatedAt, &a.Balance)
 	return a, err
 }
@@ -62,19 +62,33 @@ func (r *AccountRepo) Create(account entity.Account) (entity.Account, error) {
 	return account, err
 }
 
-// Delete — удалить счёт по ID (только если принадлежит пользователю).
+// Delete — мягко удалить счёт по ID (только если принадлежит пользователю).
+// Также мягко удаляет все транзакции этого счёта.
 func (r *AccountRepo) Delete(id, userID int) (int64, error) {
-	result, err := r.db.Exec("DELETE FROM accounts WHERE id = $1 AND user_id = $2", id, userID)
+	result, err := r.db.Exec(
+		"UPDATE accounts SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+		id, userID,
+	)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if affected > 0 {
+		_, _ = r.db.Exec(
+			"UPDATE transactions SET deleted_at = NOW() WHERE account_id = $1 AND deleted_at IS NULL",
+			id,
+		)
+	}
+	return affected, nil
 }
 
 // UpdateComment — обновить комментарий счёта.
 func (r *AccountRepo) UpdateComment(id, userID int, comment string) error {
 	res, err := r.db.Exec(
-		"UPDATE accounts SET comment = $1 WHERE id = $2 AND user_id = $3",
+		"UPDATE accounts SET comment = $1 WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL",
 		comment, id, userID,
 	)
 	if err != nil {
@@ -93,6 +107,6 @@ func (r *AccountRepo) UpdateComment(id, userID int, comment string) error {
 // Exists — проверить существование счёта у пользователя.
 func (r *AccountRepo) Exists(id, userID int) (bool, error) {
 	var exists bool
-	err := r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1 AND user_id = $2)", id, userID).Scan(&exists)
+	err := r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL)", id, userID).Scan(&exists)
 	return exists, err
 }

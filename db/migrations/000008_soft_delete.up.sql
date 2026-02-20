@@ -1,0 +1,3 @@
+ALTER TABLE accounts ADD COLUMN deleted_at TIMESTAMP NULL;
+ALTER TABLE transactions ADD COLUMN deleted_at TIMESTAMP NULL;
+ALTER TABLE categories ADD COLUMN deleted_at TIMESTAMP NULL;

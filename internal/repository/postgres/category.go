@@ -18,7 +18,7 @@ func NewCategoryRepo(db *sql.DB) *CategoryRepo {
 // GetAllByUserID — получить все категории пользователя.
 func (r *CategoryRepo) GetAllByUserID(userID int) ([]entity.Category, error) {
 	rows, err := r.db.Query(
-		"SELECT id, user_id, name, created_at FROM categories WHERE user_id = $1 ORDER BY name",
+		"SELECT id, user_id, name, created_at FROM categories WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name",
 		userID,
 	)
 	if err != nil {
@@ -46,10 +46,10 @@ func (r *CategoryRepo) Create(category entity.Category) (entity.Category, error)
 	return category, err
 }
 
-// Delete — удалить категорию по ID (только если принадлежит пользователю).
+// Delete — мягко удалить категорию по ID (только если принадлежит пользователю).
 func (r *CategoryRepo) Delete(id, userID int) error {
 	res, err := r.db.Exec(
-		"DELETE FROM categories WHERE id = $1 AND user_id = $2",
+		"UPDATE categories SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
 		id, userID,
 	)
 	if err != nil {
