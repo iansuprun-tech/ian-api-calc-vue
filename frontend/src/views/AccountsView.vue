@@ -25,6 +25,7 @@ const accounts = ref<Account[]>([])
 const rates = ref<Rate[]>([])
 const newCurrency = ref('')
 const newComment = ref('')
+const deletingAccountId = ref<number | null>(null)
 
 function loadAccounts() {
   apiFetch('/api/accounts')
@@ -104,10 +105,20 @@ async function addAccount() {
   }
 }
 
-async function removeAccount(account: Account) {
-  const response = await apiFetch(`/api/accounts/${account.id}`, {
+function confirmDeleteAccount(id: number) {
+  deletingAccountId.value = id
+}
+
+function cancelDeleteAccount() {
+  deletingAccountId.value = null
+}
+
+async function deleteAccount() {
+  if (deletingAccountId.value === null) return
+  const response = await apiFetch(`/api/accounts/${deletingAccountId.value}`, {
     method: 'DELETE',
   })
+  deletingAccountId.value = null
   if (response.ok) {
     loadAccounts()
   }
@@ -168,7 +179,7 @@ function goToAccount(account: Account) {
                   {{ formatAmount(account.balance) }}
                 </span>
                 <button
-                  @click.stop="removeAccount(account)"
+                  @click.stop="confirmDeleteAccount(account.id)"
                   class="btn-icon btn-danger"
                   title="Удалить"
                 >
@@ -208,6 +219,19 @@ function goToAccount(account: Account) {
         </div>
       </div>
     </div>
+
+    <!-- Модалка подтверждения удаления -->
+    <Teleport to="body">
+      <div v-if="deletingAccountId !== null" class="modal-overlay" @click.self="cancelDeleteAccount">
+        <div class="modal-card">
+          <p class="modal-text">Удалить счёт?</p>
+          <div class="modal-buttons">
+            <button class="btn btn-outline" @click="cancelDeleteAccount">Отмена</button>
+            <button class="btn btn-danger-solid" @click="deleteAccount">Удалить</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -460,5 +484,57 @@ function goToAccount(account: Account) {
   font-weight: 700;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  min-width: 280px;
+  text-align: center;
+}
+
+.modal-text {
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 1.25rem;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.btn-outline {
+  background: #fff;
+  color: #333;
+  border: 1.5px solid #ddd;
+}
+
+.btn-outline:hover {
+  border-color: #bbb;
+  background: #f9f9f9;
+}
+
+.btn-danger-solid {
+  background: #d73a49;
+  color: #fff;
+}
+
+.btn-danger-solid:hover {
+  background: #b42d3a;
 }
 </style>
