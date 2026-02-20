@@ -92,6 +92,7 @@ func main() {
 	categoryRepo := postgres.NewCategoryRepo(db)
 	rateRepo := postgres.NewRateRepo(db)
 	userRepo := postgres.NewUserRepo(db)
+	statisticsRepo := postgres.NewStatisticsRepo(db)
 
 	// 2. Создаём юзкейсы (бизнес-логика), передавая им репозитории
 	accountUC := usecase.NewAccountUseCase(accountRepo)
@@ -100,6 +101,7 @@ func main() {
 	fetcher := &rateFetcher{apiKey: os.Getenv("EXCHANGE_RATE_API_KEY")}
 	rateUC := usecase.NewRateUseCase(rateRepo, fetcher)
 	authUC := usecase.NewAuthUseCase(userRepo)
+	statisticsUC := usecase.NewStatisticsUseCase(statisticsRepo)
 
 	// 3. Создаём хендлеры (HTTP-слой), передавая им юзкейсы
 	accountHandler := handler.NewAccountHandler(accountUC)
@@ -107,6 +109,7 @@ func main() {
 	categoryHandler := handler.NewCategoryHandler(categoryUC)
 	rateHandler := handler.NewRateHandler(rateUC)
 	authHandler := handler.NewAuthHandler(authUC)
+	statisticsHandler := handler.NewStatisticsHandler(statisticsUC)
 
 	// Запускаем фоновое обновление курсов валют
 	rateUC.StartUpdater()
@@ -117,6 +120,7 @@ func main() {
 	http.HandleFunc("/api/rates", rateHandler.Handle)
 
 	// Защищённые маршруты (требуют JWT)
+	http.HandleFunc("/api/statistics", handler.AuthMiddleware(statisticsHandler.Handle))
 	http.HandleFunc("/api/categories", handler.AuthMiddleware(categoryHandler.Handle))
 	http.HandleFunc("/api/categories/", handler.AuthMiddleware(categoryHandler.Handle))
 	http.HandleFunc("/api/accounts", handler.AuthMiddleware(accountHandler.HandleList))
@@ -143,6 +147,7 @@ func main() {
 	fmt.Println("  GET    /api/categories                   - список категорий")
 	fmt.Println("  POST   /api/categories                   - создать категорию")
 	fmt.Println("  DELETE /api/categories/{id}               - удалить категорию")
+	fmt.Println("  GET    /api/statistics                   - статистика за период")
 	fmt.Println("  GET    /api/rates                       - список курсов валют")
 
 	log.Fatal(http.ListenAndServe(":8080", nil))

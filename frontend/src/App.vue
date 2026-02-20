@@ -19,6 +19,7 @@ function logout() {
         <nav class="topbar-nav">
           <RouterLink to="/accounts" class="nav-link">Счета</RouterLink>
           <RouterLink to="/categories" class="nav-link">Категории</RouterLink>
+          <RouterLink to="/statistics" class="nav-link">Статистика</RouterLink>
         </nav>
       </div>
       <button @click="logout" class="logout-btn">Выйти</button>
