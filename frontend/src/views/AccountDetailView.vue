@@ -39,7 +39,11 @@ const selectedCategoryId = ref<number | null>(null)
 const categories = ref<Category[]>([])
 const error = ref('')
 const deletingTxId = ref<number | null>(null)
-const editingTx = ref<Transaction | null>(null)
+const editTx = ref<Transaction | null>(null)
+const editAmount = ref('')
+const editComment = ref('')
+const editDate = ref('')
+const editCategoryId = ref<number | null>(null)
 const editingComment = ref(false)
 const editCommentValue = ref('')
 
@@ -142,48 +146,49 @@ async function saveComment() {
 }
 
 function startEdit(tx: Transaction) {
-  editingTx.value = tx
-  txAmount.value = Math.abs(tx.amount).toString()
-  txComment.value = tx.comment
-  selectedCategoryId.value = tx.category_id
+  editTx.value = tx
+  editAmount.value = Math.abs(tx.amount).toString()
+  editComment.value = tx.comment
+  editCategoryId.value = tx.category_id
+  editDate.value = ''
   if (tx.created_at) {
     const d = new Date(tx.created_at.replace(' ', 'T'))
     if (!isNaN(d.getTime())) {
       const pad = (n: number) => n.toString().padStart(2, '0')
-      txDate.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+      editDate.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
     }
   }
 }
 
 function cancelEdit() {
-  editingTx.value = null
-  txAmount.value = ''
-  txComment.value = ''
-  txDate.value = ''
-  selectedCategoryId.value = null
+  editTx.value = null
+  editAmount.value = ''
+  editComment.value = ''
+  editDate.value = ''
+  editCategoryId.value = null
 }
 
 async function saveEdit() {
-  if (!editingTx.value) return
-  const amount = parseAmount(txAmount.value)
+  if (!editTx.value) return
+  const amount = parseAmount(editAmount.value)
   if (!amount || amount <= 0) return
 
-  const sign = editingTx.value.amount < 0 ? -1 : 1
+  const sign = editTx.value.amount < 0 ? -1 : 1
   const body: Record<string, unknown> = {
     amount: amount * sign,
-    comment: txComment.value.trim(),
+    comment: editComment.value.trim(),
   }
-  if (txDate.value) {
-    body.created_at = new Date(txDate.value).toISOString()
+  if (editDate.value) {
+    body.created_at = new Date(editDate.value).toISOString()
   } else {
-    body.created_at = editingTx.value.created_at
+    body.created_at = editTx.value.created_at
   }
-  if (selectedCategoryId.value !== null) {
-    body.category_id = selectedCategoryId.value
+  if (editCategoryId.value !== null) {
+    body.category_id = editCategoryId.value
   }
 
   const response = await apiFetch(
-    `/api/accounts/${accountId}/transactions/${editingTx.value.id}`,
+    `/api/accounts/${accountId}/transactions/${editTx.value.id}`,
     {
       method: 'PUT',
       body: JSON.stringify(body),
@@ -264,7 +269,7 @@ function goBack() {
 
       <!-- Форма операции -->
       <div class="card">
-        <h2 class="card-title">{{ editingTx ? 'Редактирование операции' : 'Новая операция' }}</h2>
+        <h2 class="card-title">Новая операция</h2>
         <div class="tx-form">
           <div v-if="categories.length > 0" class="category-buttons">
             <button
@@ -298,11 +303,7 @@ function goBack() {
               class="input-field input-grow"
               title="Дата операции (необязательно)"
             />
-            <div class="tx-buttons" v-if="editingTx">
-              <button @click="saveEdit" class="btn btn-warning">Сохранить</button>
-              <button @click="cancelEdit" class="btn btn-outline">Отмена</button>
-            </div>
-            <div class="tx-buttons" v-else>
+            <div class="tx-buttons">
               <button @click="deposit" class="btn btn-success">Пополнить</button>
               <button @click="withdraw" class="btn btn-danger">Списать</button>
             </div>
@@ -350,6 +351,54 @@ function goBack() {
           <div class="modal-buttons">
             <button class="btn btn-outline" @click="cancelDelete">Отмена</button>
             <button class="btn btn-danger" @click="deleteTransaction">Удалить</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Модалка редактирования операции -->
+    <Teleport to="body">
+      <div v-if="editTx !== null" class="modal-overlay" @click.self="cancelEdit">
+        <div class="modal-card modal-card-wide">
+          <h3 class="modal-title">Редактирование операции</h3>
+          <div class="tx-form">
+            <div v-if="categories.length > 0" class="category-buttons">
+              <button
+                v-for="cat in categories"
+                :key="cat.id"
+                class="category-btn"
+                :class="{ active: editCategoryId === cat.id }"
+                @click="editCategoryId = editCategoryId === cat.id ? null : cat.id"
+              >
+                {{ cat.name }}
+              </button>
+            </div>
+            <div class="tx-row">
+              <input
+                v-model="editAmount"
+                placeholder="Сумма"
+                type="text"
+                inputmode="decimal"
+                class="input-field"
+              />
+              <input
+                v-model="editComment"
+                placeholder="Комментарий"
+                class="input-field input-grow"
+              />
+            </div>
+            <div class="tx-row">
+              <input
+                v-model="editDate"
+                type="datetime-local"
+                class="input-field input-grow"
+                title="Дата операции"
+              />
+            </div>
+            <div class="modal-buttons">
+              <button class="btn btn-outline" @click="cancelEdit">Отмена</button>
+              <button class="btn btn-warning" @click="saveEdit">Сохранить</button>
+            </div>
           </div>
         </div>
       </div>
@@ -691,6 +740,18 @@ function goBack() {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
   min-width: 280px;
   text-align: center;
+}
+
+.modal-card-wide {
+  width: 420px;
+  text-align: left;
+}
+
+.modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 1rem;
 }
 
 .modal-text {
