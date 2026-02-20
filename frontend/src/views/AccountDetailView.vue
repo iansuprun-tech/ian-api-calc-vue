@@ -77,14 +77,18 @@ onMounted(() => {
   loadCategories()
 })
 
+function parseAmount(value: string): number {
+  return parseFloat(value.replace(/[\s,]/g, ''))
+}
+
 async function deposit() {
-  const amount = parseFloat(txAmount.value)
+  const amount = parseAmount(txAmount.value)
   if (!amount || amount <= 0) return
   await createTransaction(amount)
 }
 
 async function withdraw() {
-  const amount = parseFloat(txAmount.value)
+  const amount = parseAmount(txAmount.value)
   if (!amount || amount <= 0) return
   await createTransaction(-amount)
 }
@@ -161,7 +165,7 @@ function cancelEdit() {
 
 async function saveEdit() {
   if (!editingTx.value) return
-  const amount = parseFloat(txAmount.value)
+  const amount = parseAmount(txAmount.value)
   if (!amount || amount <= 0) return
 
   const sign = editingTx.value.amount < 0 ? -1 : 1
@@ -277,9 +281,8 @@ function goBack() {
             <input
               v-model="txAmount"
               placeholder="Сумма"
-              type="number"
-              step="0.01"
-              min="0.01"
+              type="text"
+              inputmode="decimal"
               class="input-field"
             />
             <input

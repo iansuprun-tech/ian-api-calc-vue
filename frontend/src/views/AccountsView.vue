@@ -214,7 +214,7 @@ function goToAccount(account: Account) {
 <style scoped>
 .page {
   padding: 2rem;
-  max-width: 1000px;
+  max-width: 1060px;
   margin: 0 auto;
 }
 
@@ -230,7 +230,7 @@ function goToAccount(account: Account) {
 
 .content-grid {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: 1fr 340px;
   gap: 1.5rem;
   align-items: start;
 }
@@ -415,18 +415,22 @@ function goToAccount(account: Account) {
   padding: 0.6rem 0.8rem;
   background: #f0f4ff;
   border-radius: 8px;
+  gap: 0.5rem;
 }
 
 .summary-currency {
   font-weight: 600;
   color: #0f3460;
   font-size: 0.9rem;
+  flex-shrink: 0;
 }
 
 .summary-value {
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.95rem;
   color: #22863a;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .summary-value.negative {
@@ -443,7 +447,8 @@ function goToAccount(account: Account) {
   border-radius: 8px;
   color: #fff;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  gap: 0.5rem;
 }
 
 .total-usd:first-of-type {
@@ -451,7 +456,9 @@ function goToAccount(account: Account) {
 }
 
 .total-usd-value {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 </style>
