@@ -17,7 +17,7 @@ func NewStatisticsHandler(uc *usecase.StatisticsUseCase) *StatisticsHandler {
 	return &StatisticsHandler{uc: uc}
 }
 
-// Handle — обработка GET /api/statistics?from=...&to=...&account_id=...
+// Handle — обработка GET /api/statistics?from=...&to=...&account_id=...&currency=...
 func (h *StatisticsHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -40,6 +40,11 @@ func (h *StatisticsHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	currency := r.URL.Query().Get("currency")
+	if currency == "" {
+		currency = "USD"
+	}
+
 	var accountID *int
 	if aidStr := r.URL.Query().Get("account_id"); aidStr != "" {
 		aid, err := strconv.Atoi(aidStr)
@@ -50,7 +55,7 @@ func (h *StatisticsHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		accountID = &aid
 	}
 
-	stats, err := h.uc.GetStatistics(userID, from, to, accountID)
+	stats, err := h.uc.GetStatistics(userID, from, to, accountID, currency)
 	if err != nil {
 		http.Error(w, `{"error": "Ошибка получения статистики"}`, http.StatusInternalServerError)
 		return

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiFetch } from '@/api'
 import { formatAmount } from '@/format'
+import CurrencyPicker from '@/components/CurrencyPicker.vue'
 
 type Account = {
   id: number
@@ -34,10 +35,14 @@ function loadAccounts() {
 }
 
 function loadRates() {
-  fetch('/api/rates')
+  apiFetch('/api/rates')
     .then((response) => response.json())
     .then((data) => (rates.value = data))
 }
+
+const availableCurrencies = computed(() => {
+  return rates.value.map((r) => r.currency).sort()
+})
 
 function getRateForCurrency(currencyCode: string): number | null {
   const found = rates.value.find((r) => r.currency === currencyCode)
@@ -142,11 +147,7 @@ function goToAccount(account: Account) {
         <div class="card">
           <h2 class="card-title">Новый счёт</h2>
           <form @submit.prevent="addAccount" class="add-form">
-            <input
-              v-model="newCurrency"
-              placeholder="Валюта (USD, EUR...)"
-              class="input-field"
-            />
+            <CurrencyPicker v-model="newCurrency" :currencies="availableCurrencies" />
             <input
               v-model="newComment"
               placeholder="Комментарий"

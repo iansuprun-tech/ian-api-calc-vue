@@ -28,17 +28,13 @@ type DailyStat = {
   expense: number
 }
 
-type CurrencyStats = {
+type StatisticsData = {
   currency: string
   total_income: number
   total_expense: number
   income_by_category: CategoryStat[]
   expense_by_category: CategoryStat[]
   daily_stats: DailyStat[]
-}
-
-type StatisticsData = {
-  currencies: CurrencyStats[]
 }
 
 type Account = {
@@ -62,6 +58,7 @@ const activePeriod = ref<PeriodType>('month')
 const dateFrom = ref('')
 const dateTo = ref('')
 const selectedAccountId = ref<number | null>(null)
+const selectedCurrency = ref('USD')
 const accounts = ref<Account[]>([])
 const stats = ref<StatisticsData | null>(null)
 const loading = ref(false)
@@ -115,14 +112,22 @@ async function loadAccounts() {
   const response = await apiFetch('/api/accounts')
   if (response.ok) {
     accounts.value = await response.json()
+    if (accounts.value.length > 0 && !accountCurrencies.value.includes(selectedCurrency.value)) {
+      selectedCurrency.value = accounts.value[0].currency
+    }
   }
 }
+
+const accountCurrencies = computed(() => {
+  const set = new Set(accounts.value.map((a) => a.currency))
+  return [...set].sort()
+})
 
 async function loadStats() {
   if (!dateFrom.value || !dateTo.value) return
   loading.value = true
 
-  let url = `/api/statistics?from=${dateFrom.value}&to=${dateTo.value}`
+  let url = `/api/statistics?from=${dateFrom.value}&to=${dateTo.value}&currency=${selectedCurrency.value}`
   if (selectedAccountId.value !== null) {
     url += `&account_id=${selectedAccountId.value}`
   }
@@ -134,7 +139,7 @@ async function loadStats() {
   loading.value = false
 }
 
-watch([dateFrom, dateTo, selectedAccountId], () => {
+watch([dateFrom, dateTo, selectedAccountId, selectedCurrency], () => {
   loadStats()
 })
 
@@ -150,50 +155,50 @@ const pieColors = [
   '#6366f1', '#84cc16', '#ef4444', '#06b6d4', '#a855f7',
 ]
 
-function makeExpensePieData(cs: CurrencyStats) {
-  if (cs.expense_by_category.length === 0) return null
+const expensePieData = computed(() => {
+  if (!stats.value || stats.value.expense_by_category.length === 0) return null
   return {
-    labels: cs.expense_by_category.map((c) => c.category_name),
+    labels: stats.value.expense_by_category.map((c) => c.category_name),
     datasets: [
       {
-        data: cs.expense_by_category.map((c) => c.total),
-        backgroundColor: pieColors.slice(0, cs.expense_by_category.length),
+        data: stats.value.expense_by_category.map((c) => c.total),
+        backgroundColor: pieColors.slice(0, stats.value.expense_by_category.length),
       },
     ],
   }
-}
+})
 
-function makeIncomePieData(cs: CurrencyStats) {
-  if (cs.income_by_category.length === 0) return null
+const incomePieData = computed(() => {
+  if (!stats.value || stats.value.income_by_category.length === 0) return null
   return {
-    labels: cs.income_by_category.map((c) => c.category_name),
+    labels: stats.value.income_by_category.map((c) => c.category_name),
     datasets: [
       {
-        data: cs.income_by_category.map((c) => c.total),
-        backgroundColor: pieColors.slice(0, cs.income_by_category.length),
+        data: stats.value.income_by_category.map((c) => c.total),
+        backgroundColor: pieColors.slice(0, stats.value.income_by_category.length),
       },
     ],
   }
-}
+})
 
-function makeBarData(cs: CurrencyStats) {
-  if (cs.daily_stats.length === 0) return null
+const barData = computed(() => {
+  if (!stats.value || stats.value.daily_stats.length === 0) return null
   return {
-    labels: cs.daily_stats.map((d) => d.date.slice(5)),
+    labels: stats.value.daily_stats.map((d) => d.date.slice(5)),
     datasets: [
       {
         label: 'Доходы',
-        data: cs.daily_stats.map((d) => d.income),
+        data: stats.value.daily_stats.map((d) => d.income),
         backgroundColor: '#22c55e',
       },
       {
         label: 'Расходы',
-        data: cs.daily_stats.map((d) => d.expense),
+        data: stats.value.daily_stats.map((d) => d.expense),
         backgroundColor: '#e94560',
       },
     ],
   }
-}
+})
 
 const pieOptions = {
   responsive: true,
@@ -221,7 +226,7 @@ const barOptions = {
 }
 
 const hasData = computed(() => {
-  return stats.value && stats.value.currencies.length > 0
+  return stats.value && (stats.value.total_income > 0 || stats.value.total_expense > 0)
 })
 </script>
 
@@ -258,6 +263,10 @@ const hasData = computed(() => {
             {{ a.comment || a.currency }} ({{ a.currency }})
           </option>
         </select>
+
+        <select v-model="selectedCurrency" class="input-field select-field">
+          <option v-for="c in accountCurrencies" :key="c" :value="c">{{ c }}</option>
+        </select>
       </div>
     </div>
 
@@ -265,63 +274,55 @@ const hasData = computed(() => {
 
     <template v-if="stats && !loading">
       <template v-if="hasData">
-        <div
-          v-for="cs in stats.currencies"
-          :key="cs.currency"
-          class="currency-section"
-        >
-          <h2 class="currency-title">{{ cs.currency }}</h2>
-
-          <!-- Карточки-итоги -->
-          <div class="summary-row">
-            <div class="summary-card income">
-              <div class="summary-label">Доходы</div>
-              <div class="summary-value">{{ formatAmount(cs.total_income) }} {{ cs.currency }}</div>
-            </div>
-            <div class="summary-card expense">
-              <div class="summary-label">Расходы</div>
-              <div class="summary-value">{{ formatAmount(cs.total_expense) }} {{ cs.currency }}</div>
-            </div>
-            <div
-              class="summary-card net"
-              :class="{
-                positive: cs.total_income - cs.total_expense >= 0,
-                negative: cs.total_income - cs.total_expense < 0,
-              }"
-            >
-              <div class="summary-label">Разница</div>
-              <div class="summary-value">
-                {{ formatAmount(cs.total_income - cs.total_expense) }} {{ cs.currency }}
-              </div>
-            </div>
+        <!-- Карточки-итоги -->
+        <div class="summary-row">
+          <div class="summary-card income">
+            <div class="summary-label">Доходы</div>
+            <div class="summary-value">{{ formatAmount(stats.total_income) }} {{ stats.currency }}</div>
           </div>
-
-          <!-- Pie charts -->
+          <div class="summary-card expense">
+            <div class="summary-label">Расходы</div>
+            <div class="summary-value">{{ formatAmount(stats.total_expense) }} {{ stats.currency }}</div>
+          </div>
           <div
-            class="charts-grid"
-            v-if="makeExpensePieData(cs) || makeIncomePieData(cs)"
+            class="summary-card net"
+            :class="{
+              positive: stats.total_income - stats.total_expense >= 0,
+              negative: stats.total_income - stats.total_expense < 0,
+            }"
           >
-            <div class="card chart-card" v-if="makeExpensePieData(cs)">
-              <h3 class="card-title">Расходы по категориям</h3>
-              <div class="chart-container">
-                <Pie :data="makeExpensePieData(cs)!" :options="pieOptions" />
-              </div>
+            <div class="summary-label">Разница</div>
+            <div class="summary-value">
+              {{ formatAmount(stats.total_income - stats.total_expense) }} {{ stats.currency }}
             </div>
+          </div>
+        </div>
 
-            <div class="card chart-card" v-if="makeIncomePieData(cs)">
-              <h3 class="card-title">Доходы по категориям</h3>
-              <div class="chart-container">
-                <Pie :data="makeIncomePieData(cs)!" :options="pieOptions" />
-              </div>
+        <!-- Pie charts -->
+        <div
+          class="charts-grid"
+          v-if="expensePieData || incomePieData"
+        >
+          <div class="card chart-card" v-if="expensePieData">
+            <h3 class="card-title">Расходы по категориям</h3>
+            <div class="chart-container">
+              <Pie :data="expensePieData" :options="pieOptions" />
             </div>
           </div>
 
-          <!-- Bar chart -->
-          <div class="card" v-if="makeBarData(cs)">
-            <h3 class="card-title">По дням</h3>
-            <div class="bar-container">
-              <Bar :data="makeBarData(cs)!" :options="barOptions" />
+          <div class="card chart-card" v-if="incomePieData">
+            <h3 class="card-title">Доходы по категориям</h3>
+            <div class="chart-container">
+              <Pie :data="incomePieData" :options="pieOptions" />
             </div>
+          </div>
+        </div>
+
+        <!-- Bar chart -->
+        <div class="card" v-if="barData">
+          <h3 class="card-title">По дням</h3>
+          <div class="bar-container">
+            <Bar :data="barData" :options="barOptions" />
           </div>
         </div>
       </template>
@@ -436,20 +437,6 @@ const hasData = computed(() => {
   padding: 2rem;
   color: #999;
   font-size: 1rem;
-}
-
-/* --- Currency section --- */
-.currency-section {
-  margin-bottom: 2.5rem;
-}
-
-.currency-title {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #0f3460;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #0f3460;
 }
 
 .summary-row {

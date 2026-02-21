@@ -4,7 +4,7 @@ import "vue-calc/internal/entity"
 
 // StatisticsRepository — интерфейс репозитория статистики.
 type StatisticsRepository interface {
-	GetStatistics(userID int, from, to string, accountID *int) (entity.StatisticsResponse, error)
+	GetStatistics(userID int, from, to string, accountID *int, targetCurrency string) (entity.StatisticsResponse, error)
 }
 
 // StatisticsUseCase — бизнес-логика для получения статистики.
@@ -17,7 +17,7 @@ func NewStatisticsUseCase(repo StatisticsRepository) *StatisticsUseCase {
 	return &StatisticsUseCase{repo: repo}
 }
 
-// GetStatistics — получить агрегированную статистику за период.
-func (uc *StatisticsUseCase) GetStatistics(userID int, from, to string, accountID *int) (entity.StatisticsResponse, error) {
-	return uc.repo.GetStatistics(userID, from, to, accountID)
+// GetStatistics — получить агрегированную статистику за период в указанной валюте.
+func (uc *StatisticsUseCase) GetStatistics(userID int, from, to string, accountID *int, targetCurrency string) (entity.StatisticsResponse, error) {
+	return uc.repo.GetStatistics(userID, from, to, accountID, targetCurrency)
 }

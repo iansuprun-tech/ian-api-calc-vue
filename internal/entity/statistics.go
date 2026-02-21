@@ -15,17 +15,12 @@ type DailyStat struct {
 	Expense float64 `json:"expense"`
 }
 
-// CurrencyStats — статистика по одной валюте.
-type CurrencyStats struct {
+// StatisticsResponse — статистика за период, все суммы пересчитаны в выбранную валюту.
+type StatisticsResponse struct {
 	Currency          string         `json:"currency"`
 	TotalIncome       float64        `json:"total_income"`
 	TotalExpense      float64        `json:"total_expense"`
 	IncomeByCategory  []CategoryStat `json:"income_by_category"`
 	ExpenseByCategory []CategoryStat `json:"expense_by_category"`
 	DailyStats        []DailyStat    `json:"daily_stats"`
-}
-
-// StatisticsResponse — полный ответ со статистикой за период, разбитый по валютам.
-type StatisticsResponse struct {
-	Currencies []CurrencyStats `json:"currencies"`
 }
